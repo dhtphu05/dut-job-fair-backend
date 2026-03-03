@@ -1,0 +1,77 @@
+# ── Dependencies ───────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Build output ────────────────────────────────────────────────────────────────
+dist/
+build/
+
+# ── Environment variables (NEVER commit these) ─────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+
+# ── TypeScript incremental build cache ─────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── NestJS specific ─────────────────────────────────────────────────────────────
+.nest/
+
+# ── Package managers ────────────────────────────────────────────────────────────
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ── Editors ────────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ── macOS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Docker volumes (if bind-mounted locally) ───────────────────────────────────
+postgres_data/
+
+# ── Uploads / generated files ──────────────────────────────────────────────────
+uploads/
+public/uploads/
+*.csv
+*.xlsx
+
+# ── SSL certs ──────────────────────────────────────────────────────────────────
+*.pem
+*.key
+*.crt
+
+# ── Misc ───────────────────────────────────────────────────────────────────────
+.cache/
+tmp/
+.temp/
+
+.env*
+
