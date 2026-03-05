@@ -43,4 +43,8 @@ export class SchoolAdminController {
     @ApiOperation({ summary: 'Thống kê số lượt quét và sinh viên theo từng gian hàng' })
     @Get('booth-stats')
     getBoothStats() { return this.schoolAdminService.getBoothStats(); }
+
+    @ApiOperation({ summary: 'Danh sách giải thưởng kèm sinh viên đủ điều kiện' })
+    @Get('prizes')
+    getPrizes() { return this.schoolAdminService.getPrizes(); }
 }

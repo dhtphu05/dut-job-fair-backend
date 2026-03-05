@@ -230,4 +230,146 @@ export class SchoolAdminService {
             };
         });
     }
+
+    // GET /school-admin/prizes
+    async getPrizes() {
+        // ── Prize 1: Early Bird ──────────────────────────────────────────────
+        // First 50 students by their earliest check-in time (Day 1: 2026-03-04)
+        const day1Start = new Date('2026-03-04T01:00:00.000Z');
+        const day1End   = new Date('2026-03-04T10:00:00.000Z');
+
+        const earlyBirdRaw = await this.checkinRepo
+            .createQueryBuilder('c')
+            .select('c.studentId', 'studentId')
+            .addSelect('MIN(c.checkInTime)', 'firstCheckin')
+            .innerJoin('c.student', 's')
+            .where('c.checkInTime >= :start AND c.checkInTime < :end', { start: day1Start, end: day1End })
+            .groupBy('c.studentId')
+            .orderBy('MIN(c.checkInTime)', 'ASC')
+            .limit(50)
+            .getRawMany<{ studentId: string; firstCheckin: string }>();
+
+        const earlyBirdIds = earlyBirdRaw.map((r) => r.studentId);
+        const earlyBirdStudents = earlyBirdIds.length > 0
+            ? await this.studentRepo.findByIds(earlyBirdIds)
+            : [];
+        const earlyBirdMap = new Map(earlyBirdStudents.map((s) => [s.id, s]));
+        const earlyBirdList = earlyBirdRaw.map((r) => {
+            const s = earlyBirdMap.get(r.studentId);
+            return {
+                studentCode: s?.studentCode ?? '',
+                fullName: s?.fullName ?? '',
+                major: s?.major ?? null,
+                department: s?.department ?? null,
+                className: s?.className ?? null,
+                firstCheckin: r.firstCheckin,
+            };
+        });
+
+        // ── Prize 2: Sinh viên tích cực (3+ booths) ─────────────────────────
+        const activeMeta = await this.checkinRepo
+            .createQueryBuilder('c')
+            .select('c.studentId', 'studentId')
+            .addSelect('COUNT(DISTINCT c.boothId)', 'boothCount')
+            .groupBy('c.studentId')
+            .having('COUNT(DISTINCT c.boothId) >= :min', { min: 3 })
+            .orderBy('COUNT(DISTINCT c.boothId)', 'DESC')
+            .getRawMany<{ studentId: string; boothCount: string }>();
+
+        const activeIds = activeMeta.map((r) => r.studentId);
+        const activeStudents = activeIds.length > 0 ? await this.studentRepo.findByIds(activeIds) : [];
+        const activeMap = new Map(activeStudents.map((s) => [s.id, s]));
+        const activeList = activeMeta.map((r) => {
+            const s = activeMap.get(r.studentId);
+            return {
+                studentCode: s?.studentCode ?? '',
+                fullName: s?.fullName ?? '',
+                major: s?.major ?? null,
+                department: s?.department ?? null,
+                className: s?.className ?? null,
+                boothCount: parseInt(r.boothCount),
+            };
+        });
+
+        // ── Prize 3: Vé xổ số Ngày 1 (all Day-1 attendees) ──────────────────
+        const day2Start = new Date('2026-03-05T01:00:00.000Z');
+
+        const day1Pool = await this.checkinRepo
+            .createQueryBuilder('c')
+            .select('DISTINCT c.studentId', 'studentId')
+            .where('c.checkInTime >= :start AND c.checkInTime < :end', { start: day1Start, end: day1End })
+            .getRawMany<{ studentId: string }>();
+
+        const day1Ids = day1Pool.map((r) => r.studentId);
+        const day1Students = day1Ids.length > 0 ? await this.studentRepo.findByIds(day1Ids) : [];
+        const day1List = day1Students.map((s) => ({
+            studentCode: s.studentCode,
+            fullName: s.fullName,
+            major: s.major ?? null,
+            department: s.department ?? null,
+            className: s.className ?? null,
+        }));
+
+        // ── Prize 4: Vé xổ số Ngày 2 (all Day-2 attendees) ──────────────────
+        const day2End = new Date('2026-03-05T06:00:00.000Z');
+
+        const day2Pool = await this.checkinRepo
+            .createQueryBuilder('c')
+            .select('DISTINCT c.studentId', 'studentId')
+            .where('c.checkInTime >= :start AND c.checkInTime < :end', { start: day2Start, end: day2End })
+            .getRawMany<{ studentId: string }>();
+
+        const day2Ids = day2Pool.map((r) => r.studentId);
+        const day2Students = day2Ids.length > 0 ? await this.studentRepo.findByIds(day2Ids) : [];
+        const day2List = day2Students.map((s) => ({
+            studentCode: s.studentCode,
+            fullName: s.fullName,
+            major: s.major ?? null,
+            department: s.department ?? null,
+            className: s.className ?? null,
+        }));
+
+        return [
+            {
+                id: 'prize-early-bird',
+                name: 'Quà tặng Sơ cấp (Early Bird)',
+                type: 'early_bird' as const,
+                description: '50 sinh viên đến sớm nhất trong ngày 04/03',
+                quantity: 50,
+                qualificationRule: 'Check-in sớm nhất ngày 04/03',
+                eligible: earlyBirdList,
+                eligibleCount: earlyBirdList.length,
+            },
+            {
+                id: 'prize-active',
+                name: 'Sinh viên tích cực',
+                type: 'booth_special' as const,
+                description: 'Sinh viên thăm quan từ 3 gian hàng trở lên',
+                quantity: activeList.length,
+                qualificationRule: 'Thăm quan ≥ 3 gian hàng',
+                eligible: activeList,
+                eligibleCount: activeList.length,
+            },
+            {
+                id: 'prize-lucky-day1',
+                name: 'Vé xổ số may mắn – Ngày 04/03',
+                type: 'lucky_draw' as const,
+                description: 'Tất cả sinh viên tham dự Ngày 1 (04/03) đều có vé xổ số',
+                quantity: day1List.length,
+                qualificationRule: 'Tham dự ngày 04/03',
+                eligible: day1List,
+                eligibleCount: day1List.length,
+            },
+            {
+                id: 'prize-lucky-day2',
+                name: 'Vé xổ số may mắn – Ngày 05/03',
+                type: 'lucky_draw' as const,
+                description: 'Tất cả sinh viên tham dự Ngày 2 (05/03) đều có vé xổ số',
+                quantity: day2List.length,
+                qualificationRule: 'Tham dự ngày 05/03',
+                eligible: day2List,
+                eligibleCount: day2List.length,
+            },
+        ];
+    }
 }
