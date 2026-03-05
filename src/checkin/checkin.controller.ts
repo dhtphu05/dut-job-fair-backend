@@ -23,4 +23,14 @@ export class CheckinController {
     findByBooth(@Param('boothId', ParseUUIDPipe) boothId: string) {
         return this.checkinService.findByBooth(boothId);
     }
+
+    /**
+     * PUBLIC – không yêu cầu xác thực
+     * GET /api/checkins/public/by-student-code/:studentCode
+     * Trả về danh sách doanh nghiệp mà sinh viên đã check-in, tra cứu bằng MSSV.
+     */
+    @Get('public/by-student-code/:studentCode')
+    findBusinessesByStudentCode(@Param('studentCode') studentCode: string) {
+        return this.checkinService.findBusinessesByStudentCode(studentCode);
+    }
 }

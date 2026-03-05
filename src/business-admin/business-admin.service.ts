@@ -82,6 +82,28 @@ export class BusinessAdminService {
             .orderBy('hour')
             .getRawMany<{ hour: string; count: string }>();
 
+        // Day distribution (day 1 = 04/03, day 2 = 05/03)
+        const daily = await this.checkinRepo
+            .createQueryBuilder('c')
+            .select("DATE(c.checkInTime)", 'date')
+            .addSelect('COUNT(*)', 'count')
+            .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
+            .where('c.boothId = :id', { id: boothId })
+            .groupBy("DATE(c.checkInTime)")
+            .orderBy('date')
+            .getRawMany<{ date: string; count: string; uniqueStudents: string }>();
+
+        // Major distribution from check-ins of this booth
+        const majorDist = await this.checkinRepo
+            .createQueryBuilder('c')
+            .leftJoin('c.student', 's')
+            .select('s.major', 'major')
+            .addSelect('COUNT(*)', 'count')
+            .where('c.boothId = :id AND s.major IS NOT NULL', { id: boothId })
+            .groupBy('s.major')
+            .orderBy('count', 'DESC')
+            .getRawMany<{ major: string; count: string }>();
+
         return {
             booth: { id: booth.id, name: booth.name, location: booth.location },
             stats: {
@@ -89,6 +111,12 @@ export class BusinessAdminService {
                 uniqueVisitors: parseInt(uniqueResult?.count ?? '0'),
             },
             hourlyDistribution: hourly.map((h) => ({ hour: parseInt(h.hour), count: parseInt(h.count) })),
+            dailyDistribution: daily.map((d) => ({
+                date: d.date,
+                count: parseInt(d.count),
+                uniqueStudents: parseInt(d.uniqueStudents),
+            })),
+            majorDistribution: majorDist.map((m) => ({ major: m.major, count: parseInt(m.count) })),
         };
     }
 
@@ -108,9 +136,13 @@ export class BusinessAdminService {
                     id: c.student?.id,
                     studentCode: c.student?.studentCode,
                     fullName: c.student?.fullName,
+                    email: c.student?.email ?? null,
+                    phone: c.student?.phone ?? null,
                     major: c.student?.major,
+                    department: (c.student as any)?.department ?? null,
+                    className: (c.student as any)?.className ?? null,
                     year: c.student?.year,
-                    school: c.student?.school?.name,
+                    school: c.student?.school?.name ?? null,
                 },
                 checkInTime: c.checkInTime,
                 durationMinutes: c.durationMinutes,

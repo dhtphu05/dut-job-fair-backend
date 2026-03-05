@@ -41,6 +41,9 @@ export class User {
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 
+    @Column({ name: 'booth_id', type: 'uuid', nullable: true })
+    boothId: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

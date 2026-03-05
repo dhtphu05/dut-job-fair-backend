@@ -16,7 +16,7 @@ import {
     ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ScanDto } from './dto/scan.dto';
+import { QrScanDto, ScanDto } from './dto/scan.dto';
 import { ScannerService } from './scanner.service';
 
 @ApiTags('scanner')
@@ -31,6 +31,13 @@ export class ScannerController {
     @Post('scan')
     scan(@Body() dto: ScanDto) {
         return this.scannerService.scan(dto);
+    }
+
+    @ApiOperation({ summary: 'Quét QR check-in bằng payload JSON đầy đủ từ QR DUT' })
+    @ApiResponse({ status: 201, description: 'Kết quả scan: success | duplicate | error' })
+    @Post('scan-qr')
+    scanByQrData(@Body() dto: QrScanDto) {
+        return this.scannerService.scanByQrData(dto);
     }
 
     @ApiOperation({ summary: 'Lấy thông tin sinh viên theo visitorId (UUID)' })
@@ -57,5 +64,18 @@ export class ScannerController {
     @Get('recent-scans')
     getRecentScans(@Query('boothId', ParseUUIDPipe) boothId: string) {
         return this.scannerService.getRecentScans(boothId);
+    }
+
+    @ApiOperation({ summary: 'Danh sách toàn bộ sinh viên đã check-in tại booth (business-admin)' })
+    @ApiQuery({ name: 'boothId', required: true, description: 'UUID của gian hàng' })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'pageSize', required: false, example: 20 })
+    @Get('checkins')
+    getAllCheckins(
+        @Query('boothId', ParseUUIDPipe) boothId: string,
+        @Query('page') page?: string,
+        @Query('pageSize') pageSize?: string,
+    ) {
+        return this.scannerService.getAllCheckins(boothId, page ? +page : 1, pageSize ? +pageSize : 20);
     }
 }

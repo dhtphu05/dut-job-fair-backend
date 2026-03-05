@@ -18,6 +18,12 @@ export class CreateStudentDto {
     @ApiPropertyOptional({ example: 'Kỹ thuật phần mềm' })
     @IsString() @IsOptional() major?: string;
 
+    @ApiPropertyOptional({ example: 'Công nghệ Thông tin', description: 'Tên khoa' })
+    @IsString() @IsOptional() department?: string;
+
+    @ApiPropertyOptional({ example: '23DT3', description: 'Lớp học' })
+    @IsString() @IsOptional() className?: string;
+
     @ApiPropertyOptional({ example: 3, minimum: 1, maximum: 6 })
     @IsInt() @Min(1) @Max(6) @IsOptional() @Type(() => Number) year?: number;
 
@@ -37,6 +43,8 @@ export class UpdateStudentDto {
 
     @ApiPropertyOptional() @IsString() @IsOptional() phone?: string;
     @ApiPropertyOptional() @IsString() @IsOptional() major?: string;
+    @ApiPropertyOptional() @IsString() @IsOptional() department?: string;
+    @ApiPropertyOptional() @IsString() @IsOptional() className?: string;
 
     @ApiPropertyOptional({ minimum: 1, maximum: 6 })
     @IsInt() @Min(1) @Max(6) @IsOptional() @Type(() => Number) year?: number;

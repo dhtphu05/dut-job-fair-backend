@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { Booth } from '../entities/booth.entity';
+import { Business } from '../entities/business.entity';
 import { CreateCheckinDto } from './dto/create-checkin.dto';
 
 @Injectable()
@@ -15,6 +16,8 @@ export class CheckinService {
         private readonly studentRepo: Repository<Student>,
         @InjectRepository(Booth)
         private readonly boothRepo: Repository<Booth>,
+        @InjectRepository(Business)
+        private readonly businessRepo: Repository<Business>,
     ) { }
 
     async create(dto: CreateCheckinDto) {
@@ -68,5 +71,48 @@ export class CheckinService {
         });
         const unique = new Set(checkins.map((c) => c.studentId)).size;
         return { total: checkins.length, unique, checkins };
+    }
+
+    async findBusinessesByStudentCode(studentCode: string) {
+        const student = await this.studentRepo.findOne({ where: { studentCode } });
+        if (!student) throw new NotFoundException(`Student with code "${studentCode}" not found`);
+
+        const checkins = await this.checkinRepo.find({
+            where: { studentId: student.id },
+            relations: ['booth', 'booth.business'],
+            order: { checkInTime: 'DESC' },
+        });
+
+        // Deduplicate by businessId, keep earliest checkInTime per business
+        const businessMap = new Map<string, {
+            businessId: string;
+            businessName: string;
+            industry: string | null;
+            website: string | null;
+            boothName: string;
+            checkInTime: Date;
+        }>();
+
+        for (const checkin of checkins) {
+            const biz = checkin.booth?.business;
+            if (!biz) continue;
+            if (!businessMap.has(biz.id)) {
+                businessMap.set(biz.id, {
+                    businessId: biz.id,
+                    businessName: biz.name,
+                    industry: biz.industry ?? null,
+                    website: biz.website ?? null,
+                    boothName: checkin.booth.name,
+                    checkInTime: checkin.checkInTime,
+                });
+            }
+        }
+
+        return {
+            studentCode: student.studentCode,
+            fullName: student.fullName,
+            totalBusinesses: businessMap.size,
+            businesses: Array.from(businessMap.values()),
+        };
     }
 }

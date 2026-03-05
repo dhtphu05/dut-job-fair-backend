@@ -32,4 +32,15 @@ export class SchoolAdminController {
     getVisitors(@Query('page') p?: string, @Query('pageSize') ps?: string) {
         return this.schoolAdminService.getVisitors(p ? +p : 1, ps ? +ps : 20);
     }
+
+    @ApiOperation({ summary: 'Danh sách lượt check-in toàn sự kiện (phân trang)' })
+    @ApiQuery({ name: 'page', required: false }) @ApiQuery({ name: 'pageSize', required: false })
+    @Get('checkins')
+    getCheckins(@Query('page') p?: string, @Query('pageSize') ps?: string) {
+        return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30);
+    }
+
+    @ApiOperation({ summary: 'Thống kê số lượt quét và sinh viên theo từng gian hàng' })
+    @Get('booth-stats')
+    getBoothStats() { return this.schoolAdminService.getBoothStats(); }
 }

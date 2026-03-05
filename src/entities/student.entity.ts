@@ -25,14 +25,20 @@ export class Student {
     @Column({ name: 'full_name', length: 255 })
     fullName: string;
 
-    @Column({ length: 255, unique: true, nullable: true })
-    email: string;
+    @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
+    email: string | null;
 
-    @Column({ length: 20, nullable: true })
-    phone: string;
+    @Column({ type: 'varchar', length: 20, nullable: true })
+    phone: string | null;
 
-    @Column({ length: 100, nullable: true })
+    @Column({ type: 'varchar', length: 100, nullable: true })
     major: string;
+
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    department: string; // Khoa
+
+    @Column({ name: 'class_name', type: 'varchar', length: 50, nullable: true })
+    className: string; // Lớp (e.g. 23DT3)
 
     @Column({ type: 'int', nullable: true })
     year: number; // 1–4

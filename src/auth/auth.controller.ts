@@ -64,4 +64,10 @@ export class AuthController {
     getProfile(@Request() req: { user: { id: string } }) {
         return this.authService.getProfile(req.user.id);
     }
+
+    @ApiOperation({ summary: 'Danh sách doanh nghiệp (public – dùng cho form đăng ký)' })
+    @Get('businesses')
+    getPublicBusinesses() {
+        return this.authService.getPublicBusinesses();
+    }
 }

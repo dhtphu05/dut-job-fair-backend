@@ -33,6 +33,11 @@ export class RegisterDto {
     @ApiPropertyOptional({ enum: UserRole, default: UserRole.STUDENT })
     @IsOptional()
     role?: UserRole;
+
+    @ApiPropertyOptional({ description: 'UUID doanh nghiệp – bắt buộc với business_admin' })
+    @IsOptional()
+    @IsUUID()
+    businessId?: string;
 }
 
 export class RefreshTokenDto {
@@ -49,4 +54,5 @@ export class AuthResponseDto {
     @ApiProperty({ enum: UserRole }) role: UserRole;
     @ApiProperty() accessToken: string;
     @ApiProperty() refreshToken: string;
+    @ApiPropertyOptional() boothId?: string | null;
 }
