@@ -1,245 +1,329 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { Booth } from '../entities/booth.entity';
 import { QrScanDto, ScanDto } from './dto/scan.dto';
+import { UserRole } from '../entities/user.entity';
+
+type AuthenticatedScannerUser = {
+  id: string;
+  role: UserRole;
+  boothId?: string | null;
+};
 
 @Injectable()
 export class ScannerService {
-    constructor(
-        @InjectRepository(Checkin)
-        private readonly checkinRepo: Repository<Checkin>,
-        @InjectRepository(Student)
-        private readonly studentRepo: Repository<Student>,
-        @InjectRepository(Booth)
-        private readonly boothRepo: Repository<Booth>,
-    ) { }
+  constructor(
+    @InjectRepository(Checkin)
+    private readonly checkinRepo: Repository<Checkin>,
+    @InjectRepository(Student)
+    private readonly studentRepo: Repository<Student>,
+    @InjectRepository(Booth)
+    private readonly boothRepo: Repository<Booth>,
+    private readonly dataSource: DataSource,
+  ) {}
 
-    // POST /scanner/scan  – QR scan with MSSV (student_code)
-    async scan(dto: ScanDto) {
-        const student = await this.studentRepo.findOne({
-            where: { studentCode: dto.visitorCode },
-            relations: ['school'],
-        });
-        if (!student) {
-            return {
-                success: false,
-                status: 'error',
-                message: `Sinh viên có mã ${dto.visitorCode} chưa đăng ký`,
-            };
-        }
-
-        const booth = await this.boothRepo.findOne({
-            where: { id: dto.boothId },
-            relations: ['business'],
-        });
-        if (!booth) {
-            return { success: false, status: 'error', message: 'Gian hàng không tồn tại' };
-        }
-
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const recent = await this.checkinRepo
-            .createQueryBuilder('c')
-            .where('c.studentId = :sid', { sid: student.id })
-            .andWhere('c.boothId = :bid', { bid: dto.boothId })
-            .andWhere('c.checkInTime > :limit', { limit: fiveMinutesAgo })
-            .getOne();
-
-        if (recent) {
-            return {
-                success: false,
-                status: 'duplicate',
-                message: 'Sinh viên đã check-in vào gian hàng này gần đây',
-                scanId: recent.id,
-                visitor: this.formatVisitor(student),
-            };
-        }
-
-        const checkin = await this.checkinRepo.save(
-            this.checkinRepo.create({
-                studentId: student.id,
-                boothId: dto.boothId,
-                notes: dto.notes,
-                status: 'active',
-            }),
-        );
-
-        return {
-            success: true,
-            status: 'success',
-            message: `Check-in thành công: ${student.fullName}`,
-            scanId: checkin.id,
-            visitor: this.formatVisitor(student),
-            booth: { id: booth.id, name: booth.name, business: booth.business?.name },
-        };
+  // POST /scanner/scan  – QR scan with MSSV (student_code)
+  async scan(dto: ScanDto, user: AuthenticatedScannerUser) {
+    const boothId = this.ensureBoothAccess(dto.boothId, user);
+    const student = await this.studentRepo.findOne({
+      where: { studentCode: dto.visitorCode },
+    });
+    if (!student) {
+      return {
+        success: false,
+        status: 'error',
+        message: `Sinh viên có mã ${dto.visitorCode} chưa đăng ký`,
+      };
     }
 
-    // POST /scanner/scan-qr – nhận payload QR từ DUT + boothId
-    async scanByQrData(dto: QrScanDto) {
-        // 1. Validate booth
-        const booth = await this.boothRepo.findOne({
-            where: { id: dto.boothId },
-            relations: ['business'],
-        });
-        if (!booth) {
-            return { success: false, status: 'error', message: 'Gian hàng không tồn tại' };
-        }
-
-        // 2. Upsert student by MSSV
-        let student = await this.studentRepo.findOne({
-            where: { studentCode: dto.ma_so_sinh_vien },
-            relations: ['school'],
-        });
-
-        if (!student) {
-            const newStudent = new Student();
-            newStudent.studentCode = dto.ma_so_sinh_vien;
-            newStudent.fullName = dto.ho_ten;
-            newStudent.email = dto.email ?? null;
-            newStudent.phone = dto.phone ?? null;
-            newStudent.major = dto.lop;
-            student = await this.studentRepo.save(newStudent);
-        } else {
-            student.fullName = dto.ho_ten;
-            if (dto.email) student.email = dto.email;
-            if (dto.phone) student.phone = dto.phone;
-            if (dto.lop) student.major = dto.lop;
-            student = await this.studentRepo.save(student);
-        }
-
-        // 3. Duplicate check within 5 minutes
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const recent = await this.checkinRepo
-            .createQueryBuilder('c')
-            .where('c.studentId = :sid', { sid: student.id })
-            .andWhere('c.boothId = :bid', { bid: dto.boothId })
-            .andWhere('c.checkInTime > :limit', { limit: fiveMinutesAgo })
-            .getOne();
-
-        if (recent) {
-            return {
-                success: false,
-                status: 'duplicate',
-                message: 'Sinh viên đã check-in vào gian hàng này gần đây',
-                scanId: recent.id,
-                visitor: this.formatVisitor(student),
-            };
-        }
-
-        // 4. Tạo checkin
-        const checkin = await this.checkinRepo.save(
-            this.checkinRepo.create({
-                studentId: student.id,
-                boothId: dto.boothId,
-                notes: dto.notes,
-                status: 'active',
-            }),
-        );
-
-        return {
-            success: true,
-            status: 'success',
-            message: `Check-in thành công: ${student.fullName}`,
-            scanId: checkin.id,
-            visitor: this.formatVisitor(student),
-            booth: { id: booth.id, name: booth.name, business: booth.business?.name },
-        };
+    const booth = await this.getBoothForScan(boothId);
+    if (!booth) {
+      return {
+        success: false,
+        status: 'error',
+        message: 'Gian hàng không tồn tại',
+      };
     }
 
-    // GET /scanner/visitor/:visitorId
-    async getVisitor(visitorId: string) {
-        const student = await this.studentRepo.findOne({
-            where: { id: visitorId },
-            relations: ['school'],
-        });
-        if (!student) throw new BadRequestException('Sinh viên không tồn tại');
-        return this.formatVisitor(student);
+    const checkin = await this.createCheckinAtomically({
+      studentId: student.id,
+      boothId,
+      notes: dto.notes,
+    });
+
+    if (!checkin.created) {
+      return {
+        success: false,
+        status: 'duplicate',
+        message: 'Sinh viên đã check-in vào gian hàng này gần đây',
+        scanId: checkin.record.id,
+        visitor: this.formatVisitor(student),
+      };
     }
 
-    // GET /scanner/scans?boothId=&page=1&pageSize=10
-    async getScans(boothId: string, page = 1, pageSize = 10) {
-        const [checkins, total] = await this.checkinRepo.findAndCount({
-            where: { boothId },
-            relations: ['student', 'student.school'],
-            order: { checkInTime: 'DESC' },
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-        });
+    return {
+      success: true,
+      status: 'success',
+      message: `Check-in thành công: ${student.fullName}`,
+      scanId: checkin.record.id,
+      visitor: this.formatVisitor(student),
+      booth: { id: booth.id, name: booth.name, business: booth.businessName },
+    };
+  }
 
-        return {
-            items: checkins.map((c) => ({
-                id: c.id,
-                visitor: this.formatVisitor(c.student),
-                checkInTime: c.checkInTime,
-                status: c.status,
-                durationMinutes: c.durationMinutes,
-            })),
-            total,
-            page,
-            pageSize,
-            hasMore: page * pageSize < total,
-        };
+  // POST /scanner/scan-qr – nhận payload QR từ DUT + boothId
+  async scanByQrData(dto: QrScanDto, user: AuthenticatedScannerUser) {
+    const boothId = this.ensureBoothAccess(dto.boothId, user);
+    const booth = await this.getBoothForScan(boothId);
+    if (!booth) {
+      return {
+        success: false,
+        status: 'error',
+        message: 'Gian hàng không tồn tại',
+      };
     }
 
-    // GET /scanner/recent-scans?boothId=
-    async getRecentScans(boothId: string, limit = 10) {
-        const checkins = await this.checkinRepo.find({
-            where: { boothId },
-            relations: ['student'],
-            order: { checkInTime: 'DESC' },
-            take: limit,
-        });
+    const student = await this.upsertStudentFromQr(dto);
+    const checkin = await this.createCheckinAtomically({
+      studentId: student.id,
+      boothId,
+      notes: dto.notes,
+    });
 
-        return checkins.map((c) => ({
-            id: c.id,
-            visitor: this.formatVisitor(c.student),
-            checkInTime: c.checkInTime,
-            status: c.status,
-        }));
+    if (!checkin.created) {
+      return {
+        success: false,
+        status: 'duplicate',
+        message: 'Sinh viên đã check-in vào gian hàng này gần đây',
+        scanId: checkin.record.id,
+        visitor: this.formatVisitor(student),
+      };
     }
 
-    // GET /scanner/checkins?boothId=&page=&pageSize= – danh sách toàn bộ sinh viên check-in
-    async getAllCheckins(boothId: string, page = 1, pageSize = 20) {
-        const [checkins, total] = await this.checkinRepo.findAndCount({
-            where: { boothId },
-            relations: ['student'],
-            order: { checkInTime: 'DESC' },
-            skip: (page - 1) * pageSize,
-            take: pageSize,
-        });
+    return {
+      success: true,
+      status: 'success',
+      message: `Check-in thành công: ${student.fullName}`,
+      scanId: checkin.record.id,
+      visitor: this.formatVisitor(student),
+      booth: { id: booth.id, name: booth.name, business: booth.businessName },
+    };
+  }
 
-        return {
-            items: checkins.map((c) => ({
-                checkinId: c.id,
-                checkInTime: c.checkInTime,
-                status: c.status,
-                student: {
-                    id: c.student?.id,
-                    studentCode: c.student?.studentCode,
-                    fullName: c.student?.fullName,
-                    email: c.student?.email,
-                    phone: c.student?.phone,
-                    major: c.student?.major,
-                },
-            })),
-            total,
-            page,
-            pageSize,
-            hasMore: page * pageSize < total,
-        };
-    }
+  // GET /scanner/visitor/:visitorId
+  async getVisitor(visitorId: string) {
+    const student = await this.studentRepo.findOne({
+      where: { id: visitorId },
+    });
+    if (!student) throw new BadRequestException('Sinh viên không tồn tại');
+    return this.formatVisitor(student);
+  }
 
-    private formatVisitor(student: Student) {
-        return {
-            id: student.id,
-            studentCode: student.studentCode,
-            fullName: student.fullName,
-            email: student.email,
-            major: student.major,
-            year: student.year,
-            school: student.school?.name,
-        };
+  // GET /scanner/scans?boothId=&page=1&pageSize=10
+  async getScans(
+    boothId: string,
+    user: AuthenticatedScannerUser,
+    page = 1,
+    pageSize = 10,
+  ) {
+    const allowedBoothId = this.ensureBoothAccess(boothId, user);
+    const [checkins, total] = await this.checkinRepo.findAndCount({
+      where: { boothId: allowedBoothId },
+      relations: ['student', 'student.school'],
+      order: { checkInTime: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return {
+      items: checkins.map((c) => ({
+        id: c.id,
+        visitor: this.formatVisitor(c.student),
+        checkInTime: c.checkInTime,
+        status: c.status,
+        durationMinutes: c.durationMinutes,
+      })),
+      total,
+      page,
+      pageSize,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  // GET /scanner/recent-scans?boothId=
+  async getRecentScans(
+    boothId: string,
+    user: AuthenticatedScannerUser,
+    limit = 10,
+  ) {
+    const allowedBoothId = this.ensureBoothAccess(boothId, user);
+    const checkins = await this.checkinRepo.find({
+      where: { boothId: allowedBoothId },
+      relations: ['student'],
+      order: { checkInTime: 'DESC' },
+      take: limit,
+    });
+
+    return checkins.map((c) => ({
+      id: c.id,
+      visitor: this.formatVisitor(c.student),
+      checkInTime: c.checkInTime,
+      status: c.status,
+    }));
+  }
+
+  // GET /scanner/checkins?boothId=&page=&pageSize= – danh sách toàn bộ sinh viên check-in
+  async getAllCheckins(
+    boothId: string,
+    user: AuthenticatedScannerUser,
+    page = 1,
+    pageSize = 20,
+  ) {
+    const allowedBoothId = this.ensureBoothAccess(boothId, user);
+    const [checkins, total] = await this.checkinRepo.findAndCount({
+      where: { boothId: allowedBoothId },
+      relations: ['student'],
+      order: { checkInTime: 'DESC' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+
+    return {
+      items: checkins.map((c) => ({
+        checkinId: c.id,
+        checkInTime: c.checkInTime,
+        status: c.status,
+        student: {
+          id: c.student?.id,
+          studentCode: c.student?.studentCode,
+          fullName: c.student?.fullName,
+          email: c.student?.email,
+          phone: c.student?.phone,
+          major: c.student?.major,
+        },
+      })),
+      total,
+      page,
+      pageSize,
+      hasMore: page * pageSize < total,
+    };
+  }
+
+  private ensureBoothAccess(
+    requestedBoothId: string,
+    user: AuthenticatedScannerUser,
+  ) {
+    if (user.role === UserRole.SYSTEM_ADMIN) return requestedBoothId;
+    if (!user.boothId) {
+      throw new ForbiddenException('Tài khoản chưa được gán gian hàng');
     }
+    if (user.boothId !== requestedBoothId) {
+      throw new ForbiddenException(
+        'Bạn không có quyền thao tác trên gian hàng này',
+      );
+    }
+    return user.boothId;
+  }
+
+  private async getBoothForScan(boothId: string) {
+    return this.boothRepo
+      .createQueryBuilder('booth')
+      .leftJoin('booth.business', 'business')
+      .select([
+        'booth.id AS id',
+        'booth.name AS name',
+        'business.name AS "businessName"',
+      ])
+      .where('booth.id = :boothId', { boothId })
+      .getRawOne<{ id: string; name: string; businessName: string | null }>();
+  }
+
+  private async upsertStudentFromQr(dto: QrScanDto) {
+    await this.studentRepo.upsert(
+      {
+        studentCode: dto.ma_so_sinh_vien,
+        fullName: dto.ho_ten,
+        email: dto.email ?? null,
+        phone: dto.phone ?? null,
+        major: dto.lop,
+      },
+      ['studentCode'],
+    );
+
+    const student = await this.studentRepo.findOne({
+      where: { studentCode: dto.ma_so_sinh_vien },
+    });
+    if (!student) {
+      throw new BadRequestException('Không thể đồng bộ thông tin sinh viên');
+    }
+    return student;
+  }
+
+  private async createCheckinAtomically(input: {
+    studentId: string;
+    boothId: string;
+    notes?: string;
+  }) {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+        [input.studentId, input.boothId],
+      );
+
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const recent = await queryRunner.manager
+        .createQueryBuilder(Checkin, 'c')
+        .where('c.studentId = :sid', { sid: input.studentId })
+        .andWhere('c.boothId = :bid', { bid: input.boothId })
+        .andWhere('c.checkInTime > :limit', { limit: fiveMinutesAgo })
+        .orderBy('c.checkInTime', 'DESC')
+        .getOne();
+
+      if (recent) {
+        await queryRunner.commitTransaction();
+        return { created: false, record: recent };
+      }
+
+      const saved = await queryRunner.manager.save(
+        Checkin,
+        queryRunner.manager.create(Checkin, {
+          studentId: input.studentId,
+          boothId: input.boothId,
+          notes: input.notes,
+          status: 'active',
+        }),
+      );
+
+      await queryRunner.commitTransaction();
+      return { created: true, record: saved };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  private formatVisitor(student: Student) {
+    return {
+      id: student.id,
+      studentCode: student.studentCode,
+      fullName: student.fullName,
+      email: student.email,
+      major: student.major,
+      year: student.year,
+      school: student.school?.name,
+    };
+  }
 }

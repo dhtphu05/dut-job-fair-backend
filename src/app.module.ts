@@ -15,6 +15,7 @@ import { JobPosition } from './entities/job-position.entity';
 import { School } from './entities/school.entity';
 import { Student } from './entities/student.entity';
 import { User } from './entities/user.entity';
+import { UserSession } from './entities/user-session.entity';
 import { ScannerModule } from './scanner/scanner.module';
 import { SchoolAdminModule } from './school-admin/school-admin.module';
 import { SchoolsModule } from './schools/schools.module';
@@ -32,7 +33,16 @@ import { StudentsModule } from './students/students.module';
         username: configService.get<string>('DB_USER'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
-        entities: [School, Student, Business, Booth, Checkin, User, JobPosition],
+        entities: [
+          School,
+          Student,
+          Business,
+          Booth,
+          Checkin,
+          User,
+          UserSession,
+          JobPosition,
+        ],
         synchronize: true, // Only for development – use migrations in production
         logging: false,
       }),
@@ -54,4 +64,4 @@ import { StudentsModule } from './students/students.module';
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
