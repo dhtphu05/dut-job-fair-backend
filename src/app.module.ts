@@ -15,7 +15,10 @@ import { JobPosition } from './entities/job-position.entity';
 import { School } from './entities/school.entity';
 import { Student } from './entities/student.entity';
 import { User } from './entities/user.entity';
+import { RewardMilestone } from './entities/reward-milestone.entity';
+import { RewardClaim } from './entities/reward-claim.entity';
 import { UserSession } from './entities/user-session.entity';
+import { RewardsModule } from './rewards/rewards.module';
 import { ScannerModule } from './scanner/scanner.module';
 import { SchoolAdminModule } from './school-admin/school-admin.module';
 import { SchoolsModule } from './schools/schools.module';
@@ -39,6 +42,8 @@ import { StudentsModule } from './students/students.module';
           Business,
           Booth,
           Checkin,
+          RewardMilestone,
+          RewardClaim,
           User,
           UserSession,
           JobPosition,
@@ -53,6 +58,7 @@ import { StudentsModule } from './students/students.module';
     // Feature modules
     ScannerModule,
     CheckinModule,
+    RewardsModule,
     StudentsModule,
     SchoolsModule,
     BusinessesModule,
