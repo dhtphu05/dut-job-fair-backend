@@ -332,8 +332,11 @@ export class RewardsService {
     return this.dataSource.transaction(async (manager) => {
       const claim = await manager
         .createQueryBuilder(RewardClaim, 'claim')
-        .leftJoinAndSelect('claim.student', 'student')
-        .leftJoinAndSelect('claim.milestone', 'milestone')
+        // Reward claims must always reference a student and milestone.
+        // Use inner joins here so Postgres row locking does not fail on
+        // the nullable side of an outer join when applying FOR UPDATE.
+        .innerJoinAndSelect('claim.student', 'student')
+        .innerJoinAndSelect('claim.milestone', 'milestone')
         .setLock('pessimistic_write')
         .where('claim.requestCode = :requestCode', {
           requestCode: dto.requestCode,
