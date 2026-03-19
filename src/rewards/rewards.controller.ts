@@ -23,6 +23,7 @@ import { UserRole } from '../entities/user.entity';
 import {
   CreateRewardClaimRequestDto,
   CreateRewardMilestoneDto,
+  RedeemRewardCodeDto,
   UpdateRewardMilestoneDto,
 } from './dto/reward.dto';
 import { RewardsService } from './rewards.service';
@@ -42,6 +43,12 @@ export class RewardsController {
   @Post('public/claim-request')
   createClaimRequest(@Body() dto: CreateRewardClaimRequestDto) {
     return this.rewardsService.createClaimRequest(dto);
+  }
+
+  @ApiOperation({ summary: 'Tra cứu trạng thái mã đổi quà theo request code' })
+  @Get('public/claim-status/:requestCode')
+  getClaimStatus(@Param('requestCode') requestCode: string) {
+    return this.rewardsService.getClaimByRequestCode(requestCode);
   }
 
   @ApiOperation({ summary: 'Danh sách mốc quà' })
@@ -95,5 +102,19 @@ export class RewardsController {
     @Request() req: { user: { id: string } },
   ) {
     return this.rewardsService.confirmClaim(claimId, req.user.id);
+  }
+
+  @ApiOperation({
+    summary: 'Quầy quà redeem mã đổi quà one-time theo request code',
+  })
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.SYSTEM_ADMIN)
+  @Post('redeem')
+  redeemByRequestCode(
+    @Body() dto: RedeemRewardCodeDto,
+    @Request() req: { user: { id: string } },
+  ) {
+    return this.rewardsService.redeemByRequestCode(dto, req.user.id);
   }
 }

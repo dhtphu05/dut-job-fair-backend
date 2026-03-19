@@ -14,6 +14,7 @@ import { User } from '../entities/user.entity';
 import {
   CreateRewardClaimRequestDto,
   CreateRewardMilestoneDto,
+  RedeemRewardCodeDto,
   UpdateRewardMilestoneDto,
 } from './dto/reward.dto';
 
@@ -107,6 +108,7 @@ export class RewardsService {
                 requestCode: claim.requestCode,
                 expiresAt: claim.expiresAt,
                 requestedAt: claim.requestedAt,
+                qrPayload: claim.requestCode,
               }
             : null,
       };
@@ -184,6 +186,7 @@ export class RewardsService {
           status: activePending.status,
           requestCode: activePending.requestCode,
           expiresAt: activePending.expiresAt,
+          qrPayload: activePending.requestCode,
           milestone: {
             id: milestone.id,
             name: milestone.name,
@@ -223,6 +226,7 @@ export class RewardsService {
         status: saved.status,
         requestCode: saved.requestCode,
         expiresAt: saved.expiresAt,
+        qrPayload: saved.requestCode,
         milestone: {
           id: milestone.id,
           name: milestone.name,
@@ -230,6 +234,35 @@ export class RewardsService {
         },
       };
     });
+  }
+
+  async getClaimByRequestCode(requestCode: string) {
+    const claim = await this.claimRepo.findOne({
+      where: { requestCode },
+      relations: ['student', 'milestone'],
+    });
+    if (!claim) throw new NotFoundException('Mã đổi quà không tồn tại');
+
+    const normalizedClaim = await this.normalizeClaimStatus(claim);
+
+    return {
+      id: normalizedClaim.id,
+      requestCode: normalizedClaim.requestCode,
+      status: normalizedClaim.status,
+      requestedAt: normalizedClaim.requestedAt,
+      expiresAt: normalizedClaim.expiresAt,
+      claimedAt: normalizedClaim.claimedAt,
+      student: {
+        id: normalizedClaim.student.id,
+        studentCode: normalizedClaim.student.studentCode,
+        fullName: normalizedClaim.student.fullName,
+      },
+      milestone: {
+        id: normalizedClaim.milestone.id,
+        name: normalizedClaim.milestone.name,
+        requiredBooths: normalizedClaim.milestone.requiredBooths,
+      },
+    };
   }
 
   async confirmClaim(claimId: string, confirmedByUserId: string) {
@@ -285,6 +318,149 @@ export class RewardsService {
     };
   }
 
+  async redeemByRequestCode(
+    dto: RedeemRewardCodeDto,
+    confirmedByUserId: string,
+  ) {
+    const confirmedByUser = await this.userRepo.findOne({
+      where: { id: confirmedByUserId },
+    });
+    if (!confirmedByUser) {
+      throw new NotFoundException('Người xác nhận không tồn tại');
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const claim = await manager
+        .createQueryBuilder(RewardClaim, 'claim')
+        .leftJoinAndSelect('claim.student', 'student')
+        .leftJoinAndSelect('claim.milestone', 'milestone')
+        .setLock('pessimistic_write')
+        .where('claim.requestCode = :requestCode', {
+          requestCode: dto.requestCode,
+        })
+        .getOne();
+
+      if (!claim) throw new NotFoundException('Mã đổi quà không tồn tại');
+
+      if (
+        claim.status === 'pending' &&
+        claim.expiresAt &&
+        claim.expiresAt.getTime() <= Date.now()
+      ) {
+        claim.status = 'expired';
+        await manager.save(RewardClaim, claim);
+      }
+
+      if (claim.status === 'claimed') {
+        return {
+          result: 'already_claimed',
+          message: 'Mã này đã được đổi quà trước đó',
+          claim: {
+            id: claim.id,
+            requestCode: claim.requestCode,
+            status: claim.status,
+            requestedAt: claim.requestedAt,
+            expiresAt: claim.expiresAt,
+            claimedAt: claim.claimedAt,
+            student: {
+              id: claim.student.id,
+              studentCode: claim.student.studentCode,
+              fullName: claim.student.fullName,
+            },
+            milestone: {
+              id: claim.milestone.id,
+              name: claim.milestone.name,
+              requiredBooths: claim.milestone.requiredBooths,
+            },
+          },
+        };
+      }
+
+      if (claim.status === 'expired') {
+        return {
+          result: 'expired',
+          message: 'Mã đổi quà đã hết hạn',
+          claim: {
+            id: claim.id,
+            requestCode: claim.requestCode,
+            status: claim.status,
+            requestedAt: claim.requestedAt,
+            expiresAt: claim.expiresAt,
+            claimedAt: claim.claimedAt,
+            student: {
+              id: claim.student.id,
+              studentCode: claim.student.studentCode,
+              fullName: claim.student.fullName,
+            },
+            milestone: {
+              id: claim.milestone.id,
+              name: claim.milestone.name,
+              requiredBooths: claim.milestone.requiredBooths,
+            },
+          },
+        };
+      }
+
+      if (claim.status !== 'pending') {
+        return {
+          result: 'invalid_state',
+          message: 'Mã đổi quà không còn hiệu lực',
+          claim: {
+            id: claim.id,
+            requestCode: claim.requestCode,
+            status: claim.status,
+            requestedAt: claim.requestedAt,
+            expiresAt: claim.expiresAt,
+            claimedAt: claim.claimedAt,
+            student: {
+              id: claim.student.id,
+              studentCode: claim.student.studentCode,
+              fullName: claim.student.fullName,
+            },
+            milestone: {
+              id: claim.milestone.id,
+              name: claim.milestone.name,
+              requiredBooths: claim.milestone.requiredBooths,
+            },
+          },
+        };
+      }
+
+      claim.status = 'claimed';
+      claim.claimedAt = new Date();
+      claim.confirmedByUserId = confirmedByUser.id;
+      const saved = await manager.save(RewardClaim, claim);
+
+      return {
+        result: 'claimed_now',
+        message: 'Đổi quà thành công',
+        claim: {
+          id: saved.id,
+          requestCode: saved.requestCode,
+          status: saved.status,
+          requestedAt: saved.requestedAt,
+          expiresAt: saved.expiresAt,
+          claimedAt: saved.claimedAt,
+          student: {
+            id: claim.student.id,
+            studentCode: claim.student.studentCode,
+            fullName: claim.student.fullName,
+          },
+          milestone: {
+            id: claim.milestone.id,
+            name: claim.milestone.name,
+            requiredBooths: claim.milestone.requiredBooths,
+          },
+          confirmedBy: {
+            id: confirmedByUser.id,
+            name: confirmedByUser.name,
+            email: confirmedByUser.email,
+          },
+        },
+      };
+    });
+  }
+
   async getPendingClaims(page = 1, pageSize = 20) {
     const now = new Date();
     await this.claimRepo
@@ -330,5 +506,17 @@ export class RewardsService {
 
   private generateRequestCode() {
     return `RW-${randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+
+  private async normalizeClaimStatus(claim: RewardClaim) {
+    if (
+      claim.status === 'pending' &&
+      claim.expiresAt &&
+      claim.expiresAt.getTime() <= Date.now()
+    ) {
+      claim.status = 'expired';
+      return this.claimRepo.save(claim);
+    }
+    return claim;
   }
 }

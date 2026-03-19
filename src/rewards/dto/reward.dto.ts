@@ -81,3 +81,10 @@ export class CreateRewardClaimRequestDto {
   @IsUUID('4')
   milestoneId: string;
 }
+
+export class RedeemRewardCodeDto {
+  @ApiProperty({ example: 'RW-AB12CD34' })
+  @IsString()
+  @IsNotEmpty()
+  requestCode: string;
+}
