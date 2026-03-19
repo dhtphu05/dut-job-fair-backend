@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -20,6 +21,8 @@ import {
 
 @Injectable()
 export class RewardsService {
+  private readonly logger = new Logger(RewardsService.name);
+
   constructor(
     @InjectRepository(RewardMilestone)
     private readonly milestoneRepo: Repository<RewardMilestone>,
@@ -329,42 +332,122 @@ export class RewardsService {
       throw new NotFoundException('Người xác nhận không tồn tại');
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const claim = await manager
-        .createQueryBuilder(RewardClaim, 'claim')
-        // Reward claims must always reference a student and milestone.
-        // Use inner joins here so Postgres row locking does not fail on
-        // the nullable side of an outer join when applying FOR UPDATE.
-        .innerJoinAndSelect('claim.student', 'student')
-        .innerJoinAndSelect('claim.milestone', 'milestone')
-        .setLock('pessimistic_write')
-        .where('claim.requestCode = :requestCode', {
-          requestCode: dto.requestCode,
-        })
-        .getOne();
+    try {
+      return await this.dataSource.transaction(async (manager) => {
+        const claim = await manager
+          .createQueryBuilder(RewardClaim, 'claim')
+          // Reward claims must always reference a student and milestone.
+          // Use inner joins here so Postgres row locking does not fail on
+          // the nullable side of an outer join when applying FOR UPDATE.
+          .innerJoinAndSelect('claim.student', 'student')
+          .innerJoinAndSelect('claim.milestone', 'milestone')
+          .setLock('pessimistic_write')
+          .where('claim.requestCode = :requestCode', {
+            requestCode: dto.requestCode,
+          })
+          .getOne();
 
-      if (!claim) throw new NotFoundException('Mã đổi quà không tồn tại');
+        if (!claim) throw new NotFoundException('Mã đổi quà không tồn tại');
 
-      if (
-        claim.status === 'pending' &&
-        claim.expiresAt &&
-        claim.expiresAt.getTime() <= Date.now()
-      ) {
-        claim.status = 'expired';
-        await manager.save(RewardClaim, claim);
-      }
+        if (
+          claim.status === 'pending' &&
+          claim.expiresAt &&
+          claim.expiresAt.getTime() <= Date.now()
+        ) {
+          claim.status = 'expired';
+          await manager.save(RewardClaim, claim);
+        }
 
-      if (claim.status === 'claimed') {
+        if (claim.status === 'claimed') {
+          return {
+            result: 'already_claimed',
+            message: 'Mã này đã được đổi quà trước đó',
+            claim: {
+              id: claim.id,
+              requestCode: claim.requestCode,
+              status: claim.status,
+              requestedAt: claim.requestedAt,
+              expiresAt: claim.expiresAt,
+              claimedAt: claim.claimedAt,
+              student: {
+                id: claim.student.id,
+                studentCode: claim.student.studentCode,
+                fullName: claim.student.fullName,
+              },
+              milestone: {
+                id: claim.milestone.id,
+                name: claim.milestone.name,
+                requiredBooths: claim.milestone.requiredBooths,
+              },
+            },
+          };
+        }
+
+        if (claim.status === 'expired') {
+          return {
+            result: 'expired',
+            message: 'Mã đổi quà đã hết hạn',
+            claim: {
+              id: claim.id,
+              requestCode: claim.requestCode,
+              status: claim.status,
+              requestedAt: claim.requestedAt,
+              expiresAt: claim.expiresAt,
+              claimedAt: claim.claimedAt,
+              student: {
+                id: claim.student.id,
+                studentCode: claim.student.studentCode,
+                fullName: claim.student.fullName,
+              },
+              milestone: {
+                id: claim.milestone.id,
+                name: claim.milestone.name,
+                requiredBooths: claim.milestone.requiredBooths,
+              },
+            },
+          };
+        }
+
+        if (claim.status !== 'pending') {
+          return {
+            result: 'invalid_state',
+            message: 'Mã đổi quà không còn hiệu lực',
+            claim: {
+              id: claim.id,
+              requestCode: claim.requestCode,
+              status: claim.status,
+              requestedAt: claim.requestedAt,
+              expiresAt: claim.expiresAt,
+              claimedAt: claim.claimedAt,
+              student: {
+                id: claim.student.id,
+                studentCode: claim.student.studentCode,
+                fullName: claim.student.fullName,
+              },
+              milestone: {
+                id: claim.milestone.id,
+                name: claim.milestone.name,
+                requiredBooths: claim.milestone.requiredBooths,
+              },
+            },
+          };
+        }
+
+        claim.status = 'claimed';
+        claim.claimedAt = new Date();
+        claim.confirmedByUserId = confirmedByUser.id;
+        const saved = await manager.save(RewardClaim, claim);
+
         return {
-          result: 'already_claimed',
-          message: 'Mã này đã được đổi quà trước đó',
+          result: 'claimed_now',
+          message: 'Đổi quà thành công',
           claim: {
-            id: claim.id,
-            requestCode: claim.requestCode,
-            status: claim.status,
-            requestedAt: claim.requestedAt,
-            expiresAt: claim.expiresAt,
-            claimedAt: claim.claimedAt,
+            id: saved.id,
+            requestCode: saved.requestCode,
+            status: saved.status,
+            requestedAt: saved.requestedAt,
+            expiresAt: saved.expiresAt,
+            claimedAt: saved.claimedAt,
             student: {
               id: claim.student.id,
               studentCode: claim.student.studentCode,
@@ -375,93 +458,21 @@ export class RewardsService {
               name: claim.milestone.name,
               requiredBooths: claim.milestone.requiredBooths,
             },
-          },
-        };
-      }
-
-      if (claim.status === 'expired') {
-        return {
-          result: 'expired',
-          message: 'Mã đổi quà đã hết hạn',
-          claim: {
-            id: claim.id,
-            requestCode: claim.requestCode,
-            status: claim.status,
-            requestedAt: claim.requestedAt,
-            expiresAt: claim.expiresAt,
-            claimedAt: claim.claimedAt,
-            student: {
-              id: claim.student.id,
-              studentCode: claim.student.studentCode,
-              fullName: claim.student.fullName,
-            },
-            milestone: {
-              id: claim.milestone.id,
-              name: claim.milestone.name,
-              requiredBooths: claim.milestone.requiredBooths,
+            confirmedBy: {
+              id: confirmedByUser.id,
+              name: confirmedByUser.name,
+              email: confirmedByUser.email,
             },
           },
         };
-      }
-
-      if (claim.status !== 'pending') {
-        return {
-          result: 'invalid_state',
-          message: 'Mã đổi quà không còn hiệu lực',
-          claim: {
-            id: claim.id,
-            requestCode: claim.requestCode,
-            status: claim.status,
-            requestedAt: claim.requestedAt,
-            expiresAt: claim.expiresAt,
-            claimedAt: claim.claimedAt,
-            student: {
-              id: claim.student.id,
-              studentCode: claim.student.studentCode,
-              fullName: claim.student.fullName,
-            },
-            milestone: {
-              id: claim.milestone.id,
-              name: claim.milestone.name,
-              requiredBooths: claim.milestone.requiredBooths,
-            },
-          },
-        };
-      }
-
-      claim.status = 'claimed';
-      claim.claimedAt = new Date();
-      claim.confirmedByUserId = confirmedByUser.id;
-      const saved = await manager.save(RewardClaim, claim);
-
-      return {
-        result: 'claimed_now',
-        message: 'Đổi quà thành công',
-        claim: {
-          id: saved.id,
-          requestCode: saved.requestCode,
-          status: saved.status,
-          requestedAt: saved.requestedAt,
-          expiresAt: saved.expiresAt,
-          claimedAt: saved.claimedAt,
-          student: {
-            id: claim.student.id,
-            studentCode: claim.student.studentCode,
-            fullName: claim.student.fullName,
-          },
-          milestone: {
-            id: claim.milestone.id,
-            name: claim.milestone.name,
-            requiredBooths: claim.milestone.requiredBooths,
-          },
-          confirmedBy: {
-            id: confirmedByUser.id,
-            name: confirmedByUser.name,
-            email: confirmedByUser.email,
-          },
-        },
-      };
-    });
+      });
+    } catch (error) {
+      this.logger.error(
+        `redeemByRequestCode failed: requestCode=${dto.requestCode}, confirmedByUserId=${confirmedByUserId}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
   }
 
   async getPendingClaims(page = 1, pageSize = 20) {

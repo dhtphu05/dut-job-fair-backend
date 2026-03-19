@@ -13,6 +13,30 @@ import { Request, Response } from 'express';
 export class AllExceptionsFilter implements ExceptionFilter {
     private readonly logger = new Logger(AllExceptionsFilter.name);
 
+    private sanitize(value: unknown): unknown {
+        if (Array.isArray(value)) {
+            return value.map((item) => this.sanitize(item));
+        }
+
+        if (value && typeof value === 'object') {
+            return Object.fromEntries(
+                Object.entries(value as Record<string, unknown>).map(([key, val]) => {
+                    const lowered = key.toLowerCase();
+                    if (
+                        lowered.includes('password') ||
+                        lowered.includes('token') ||
+                        lowered === 'authorization'
+                    ) {
+                        return [key, '[REDACTED]'];
+                    }
+                    return [key, this.sanitize(val)];
+                }),
+            );
+        }
+
+        return value;
+    }
+
     catch(exception: unknown, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse<Response>();
@@ -39,9 +63,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
             message = exception.message;
         }
 
-        this.logger.error(
-            `[${request.method}] ${request.url} => ${status} ${message}`,
-        );
+        const logContext = {
+            params: this.sanitize(request.params),
+            query: this.sanitize(request.query),
+            body: this.sanitize(request.body),
+        };
+
+        if (exception instanceof Error) {
+            this.logger.error(
+                `[${request.method}] ${request.url} => ${status} ${message} ${JSON.stringify(logContext)}`,
+                exception.stack,
+            );
+        } else {
+            this.logger.error(
+                `[${request.method}] ${request.url} => ${status} ${message} ${JSON.stringify(logContext)}`,
+            );
+        }
 
         response.status(status).json({
             success: false,
