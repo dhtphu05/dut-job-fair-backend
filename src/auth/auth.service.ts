@@ -209,6 +209,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       sid: session.id,
+      boothId: user.boothId ?? null,
     };
 
     const [accessToken, refreshToken] = await Promise.all([

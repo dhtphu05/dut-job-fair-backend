@@ -20,7 +20,13 @@ export class JwtRefreshStrategy extends PassportStrategy(
 
   validate(
     req: Request,
-    payload: { sub: string; email: string; role: string; sid: string },
+    payload: {
+      sub: string;
+      email: string;
+      role: string;
+      sid: string;
+      boothId?: string | null;
+    },
   ) {
     const refreshToken = (req.body as { refreshToken: string })?.refreshToken;
     return {
@@ -28,6 +34,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
       email: payload.email,
       role: payload.role,
       sessionId: payload.sid,
+      boothId: payload.boothId ?? null,
       refreshToken,
     };
   }
