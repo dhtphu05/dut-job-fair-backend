@@ -17,6 +17,7 @@ Frontend can ho tro 2 flow rieng:
 Vi du:
 
 - `GET /api/rewards/public/progress/:studentCode`
+- `GET /api/rewards/public/student-status/:studentCode`
 - `POST /api/rewards/public/claim-request`
 - `GET /api/rewards/public/claim-status/:requestCode`
 - `POST /api/rewards/redeem`
@@ -97,6 +98,97 @@ Frontend nen hien:
   - hien `expiresAt`
 - `claimed = true`:
   - hien `Da nhan qua`
+
+### Buoc 1b: Lay trang thai tong hop theo studentCode cho progress bar
+
+API:
+
+`GET /api/rewards/public/student-status/:studentCode`
+
+API nay danh cho frontend muon render thanh tien trinh tong hop theo MSSV ma khong can phu thuoc vao `requestCode`.
+
+Vi du:
+
+```http
+GET /api/rewards/public/student-status/102230313
+```
+
+Response mau:
+
+```json
+{
+  "data": {
+    "studentCode": "102230313",
+    "fullName": "Nguyen Van A",
+    "checkedInBooths": 4,
+    "summary": {
+      "totalMilestones": 2,
+      "claimedMilestones": 1,
+      "eligibleMilestones": 1,
+      "hasPendingClaim": false
+    },
+    "activePendingClaim": null,
+    "milestones": [
+      {
+        "id": "milestone-1",
+        "name": "Moc khoa DUT Job Fair",
+        "description": "Qua tang cho sinh vien du 3 booth",
+        "requiredBooths": 3,
+        "sortOrder": 0,
+        "isActive": true,
+        "eligible": true,
+        "claimed": true,
+        "status": "claimed",
+        "remainingBooths": 0,
+        "pendingClaim": null
+      },
+      {
+        "id": "milestone-2",
+        "name": "Ao thun DUT Job Fair",
+        "description": "Qua tang cho sinh vien du 5 booth",
+        "requiredBooths": 5,
+        "sortOrder": 1,
+        "isActive": true,
+        "eligible": false,
+        "claimed": false,
+        "status": "locked",
+        "remainingBooths": 1,
+        "pendingClaim": null
+      }
+    ],
+    "nextMilestone": {
+      "id": "milestone-2",
+      "name": "Ao thun DUT Job Fair",
+      "requiredBooths": 5,
+      "remainingBooths": 1
+    }
+  },
+  "status": 200
+}
+```
+
+Y nghia field:
+
+- `summary.totalMilestones`: tong so moc qua dang active
+- `summary.claimedMilestones`: so moc da nhan qua
+- `summary.eligibleMilestones`: so moc da du dieu kien
+- `summary.hasPendingClaim`: hien tai co QR pending hay khong
+- `activePendingClaim`: pending claim dang con hieu luc neu co
+- `milestones[].status`:
+  - `locked`: chua du dieu kien
+  - `eligible`: da du dieu kien, chua tao claim
+  - `pending`: dang co QR cho redeem
+  - `claimed`: da nhan qua
+- `milestones[].remainingBooths`: con thieu bao nhieu booth de mo moc do
+
+Frontend nen dung API nay cho:
+
+- thanh tien trinh tong hop
+- badge tong so moc da nhan
+- trang thai hien tai cua tung moc
+- phan hoi nhanh sau khi sinh vien reload trang
+
+Frontend van co the dung `GET /api/rewards/public/progress/:studentCode` neu chi can flow co ban. Tuy nhien neu muon render progress bar day du, nen uu tien `student-status`.
 
 ## 4. Tao QR doi qua
 
@@ -421,6 +513,14 @@ export async function fetchRewardProgress(studentCode: string) {
   return json.data;
 }
 
+export async function fetchRewardStudentStatus(studentCode: string) {
+  const res = await fetch(
+    `${API_BASE}/rewards/public/student-status/${studentCode}`,
+  );
+  const json = await res.json();
+  return json.data;
+}
+
 export async function createRewardClaim(
   studentCode: string,
   milestoneId: string,
@@ -508,7 +608,7 @@ export async function redeemReward(requestCode: string, token: string) {
 
 ### Sinh vien
 
-1. Goi progress
+1. Goi `student-status` hoac `progress`
 2. Chon moc qua da du dieu kien
 3. Goi claim-request
 4. Render QR tu `qrPayload`

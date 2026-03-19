@@ -39,6 +39,15 @@ export class RewardsController {
     return this.rewardsService.getStudentRewardProgress(studentCode);
   }
 
+  @ApiOperation({
+    summary:
+      'Trạng thái nhận quà hiện tại của sinh viên theo MSSV cho frontend progress bar',
+  })
+  @Get('public/student-status/:studentCode')
+  getStudentRewardStatus(@Param('studentCode') studentCode: string) {
+    return this.rewardsService.getStudentRewardStatus(studentCode);
+  }
+
   @ApiOperation({ summary: 'Sinh viên tạo yêu cầu nhận quà' })
   @Post('public/claim-request')
   createClaimRequest(@Body() dto: CreateRewardClaimRequestDto) {

@@ -67,6 +67,54 @@ export class RewardsService {
   }
 
   async getStudentRewardProgress(studentCode: string) {
+    const snapshot = await this.buildStudentRewardSnapshot(studentCode);
+
+    return {
+      studentCode: snapshot.studentCode,
+      fullName: snapshot.fullName,
+      checkedInBooths: snapshot.checkedInBooths,
+      milestones: snapshot.milestones.map((milestone) => ({
+        id: milestone.id,
+        name: milestone.name,
+        description: milestone.description,
+        requiredBooths: milestone.requiredBooths,
+        eligible: milestone.eligible,
+        claimed: milestone.claimed,
+        pendingClaim: milestone.pendingClaim,
+      })),
+      nextMilestone: snapshot.nextMilestone,
+    };
+  }
+
+  async getStudentRewardStatus(studentCode: string) {
+    const snapshot = await this.buildStudentRewardSnapshot(studentCode);
+    const claimedMilestones = snapshot.milestones.filter(
+      (milestone) => milestone.status === 'claimed',
+    ).length;
+    const eligibleMilestones = snapshot.milestones.filter(
+      (milestone) => milestone.eligible,
+    ).length;
+    const activePendingClaim =
+      snapshot.milestones.find((milestone) => milestone.pendingClaim)?.pendingClaim ??
+      null;
+
+    return {
+      studentCode: snapshot.studentCode,
+      fullName: snapshot.fullName,
+      checkedInBooths: snapshot.checkedInBooths,
+      summary: {
+        totalMilestones: snapshot.milestones.length,
+        claimedMilestones,
+        eligibleMilestones,
+        hasPendingClaim: !!activePendingClaim,
+      },
+      activePendingClaim,
+      milestones: snapshot.milestones,
+      nextMilestone: snapshot.nextMilestone,
+    };
+  }
+
+  private async buildStudentRewardSnapshot(studentCode: string) {
     const student = await this.studentRepo.findOne({ where: { studentCode } });
     if (!student) {
       throw new NotFoundException(
@@ -97,23 +145,39 @@ export class RewardsService {
     const milestoneProgress = milestones.map((milestone) => {
       const claim = claimByMilestoneId.get(milestone.id);
       const eligible = checkedInBooths >= milestone.requiredBooths;
+      const pendingClaim =
+        claim?.status === 'pending'
+          ? {
+              id: claim.id,
+              requestCode: claim.requestCode,
+              expiresAt: claim.expiresAt,
+              requestedAt: claim.requestedAt,
+              qrPayload: claim.requestCode,
+            }
+          : null;
+
       return {
         id: milestone.id,
         name: milestone.name,
         description: milestone.description,
         requiredBooths: milestone.requiredBooths,
+        sortOrder: milestone.sortOrder,
+        isActive: milestone.isActive,
         eligible,
         claimed: claim?.status === 'claimed',
-        pendingClaim:
-          claim?.status === 'pending'
-            ? {
-                id: claim.id,
-                requestCode: claim.requestCode,
-                expiresAt: claim.expiresAt,
-                requestedAt: claim.requestedAt,
-                qrPayload: claim.requestCode,
-              }
-            : null,
+        status:
+          claim?.status === 'claimed'
+            ? 'claimed'
+            : pendingClaim
+              ? 'pending'
+              : eligible
+                ? 'eligible'
+                : 'locked',
+        pendingClaim,
+        remainingBooths:
+          checkedInBooths >= milestone.requiredBooths
+            ? 0
+            : milestone.requiredBooths - checkedInBooths,
       };
     });
 
