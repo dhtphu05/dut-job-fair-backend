@@ -206,9 +206,7 @@ export class RewardsService {
       where: { studentCode: dto.studentCode },
     });
     if (!student) {
-      throw new NotFoundException(
-        `Student with code "${dto.studentCode}" not found`,
-      );
+      throw new NotFoundException('Không tìm thấy sinh viên với MSSV này');
     }
 
     const milestone = await this.milestoneRepo.findOne({
@@ -226,7 +224,7 @@ export class RewardsService {
 
       if (checkedInBooths < milestone.requiredBooths) {
         throw new BadRequestException(
-          `Sinh viên chưa đủ điều kiện nhận quà ở mốc ${milestone.requiredBooths} booth`,
+          `Bạn chưa đủ điều kiện nhận quà này. Cần tối thiểu ${milestone.requiredBooths} booth check-in.`,
         );
       }
 
@@ -239,7 +237,9 @@ export class RewardsService {
         (claim) => claim.status === 'claimed',
       );
       if (claimed) {
-        throw new BadRequestException('Sinh viên đã nhận quà ở mốc này');
+        throw new BadRequestException(
+          'Bạn đã nhận quà ở mốc này rồi. Vui lòng kiểm tra lại tiến trình nhận quà.',
+        );
       }
 
       const activePending = existingClaims.find(
