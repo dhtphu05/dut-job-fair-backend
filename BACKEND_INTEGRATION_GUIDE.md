@@ -21,7 +21,7 @@ Dựa trên `lib/database-models.ts`, hệ thống của bạn cần setup các 
 - **StudentProfile**: Liên kết `userId` hoặc `linkedProfileId`. Chứa `mssv`, `fullName`, `email`, `phone`, `gender`, `schoolId`, `major`, `year`, `skills`, `interests`.
 
 ### Business & Event
-- **BusinessProfile**: `id`, `name`, `industry`, `description`, `contact`
+- **BusinessProfile**: `id`, `name`, `publicId`, `logoUrl`, `industry`, `description`, `contact`
 - **JobFairEvent**: Bảng quản lý sự kiện lớn
 - **Booth (Gian hàng)**: `id`, `businessId`, `boothName`, `location`, `capacity`, `scheduleStart`, `scheduleEnd`
 - **JobPosition (Vị trí tuyển dụng)**: `boothId`, `title`, `description`, `quantity`, `level`, `salary`
@@ -54,6 +54,11 @@ Các user có quyền scan tại booth sẽ gọi API này:
 | `GET`  | `/scanner/visitor/:visitorId` | Lấy detail một visitor cụ thể sau khi scan. |
 | `GET`  | `/scanner/scans` | Lấy lịch sử tất cả các lượt check-in của booth. Hỗ trợ Query phân trang `?page=1&pageSize=10`. |
 | `GET`  | `/scanner/recent-scans` | Lấy nhanh khoảng 5-10 scan mới nhất. |
+
+### 3.2b. Public Student Check-in (`/api/checkins/public`)
+| Method | Endpoint | Mô tả & Payload dự kiến |
+|---|---|---|
+| `GET` | `/checkins/public/by-student-code/:studentCode` | Trả về tổng số booth đã check-in, tổng số doanh nghiệp đã ghé và danh sách doanh nghiệp có `logoUrl` để frontend sinh viên render trực tiếp. |
 
 ### 3.3. Dashboard School Admin (`/api/school-admin`)
 | Method | Endpoint | Mô tả & Payload dự kiến |
@@ -110,6 +115,34 @@ Nên Insert Script hoặc Seed data tương tự file `lib/mock-data.ts` khi dev
 - Tạo sẵn Booths: 'Google Vietnam', 'Samsung Electronics', 'FPT Software'
 - Sinh viên có MSSV, Ngành học, Năm học (1-4).
 - Số giờ lưu Database cần tuân theo Timezone chuẩn.
+- Doanh nghiệp nên có thêm `publicId` và `logoUrl` để frontend render logo.
+
+### Mau response cho man sinh vien co logo doanh nghiep
+
+```json
+{
+  "data": {
+    "studentCode": "DUT000001",
+    "fullName": "Nguyen Van A",
+    "checkedInBooths": 5,
+    "totalBusinesses": 4,
+    "businesses": [
+      {
+        "businessId": "uuid",
+        "businessName": "FPT Software Miền Trung",
+        "publicId": "FPT_Software_ewuyrj",
+        "logoUrl": "https://res.cloudinary.com/.../FPT_Software_ewuyrj.png",
+        "industry": null,
+        "website": null,
+        "boothId": "uuid",
+        "boothName": "Gian hàng FPT Software Miền Trung",
+        "lastCheckInTime": "2026-04-01T06:32:15.000Z"
+      }
+    ]
+  },
+  "status": 200
+}
+```
 
 ---
 ## Lời Khuyên cho Triển Khai Thực Tế

@@ -96,6 +96,8 @@ export class AuthService {
     const result: {
       id: string;
       name: string;
+      publicId: string | null;
+      logoUrl: string | null;
       industry: string;
       registered: boolean;
     }[] = [];
@@ -108,6 +110,8 @@ export class AuthService {
       result.push({
         id: biz.id,
         name: biz.name,
+        publicId: biz.publicId ?? null,
+        logoUrl: biz.logoUrl ?? null,
         industry: biz.industry,
         registered,
       });

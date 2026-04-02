@@ -13,14 +13,100 @@ Frontend can ho tro 2 flow rieng:
 
 - Base URL backend: `https://your-domain.com/api`
 - Prefix rewards: `/rewards`
+- Prefix checkins public: `/checkins`
 
 Vi du:
 
 - `GET /api/rewards/public/progress/:studentCode`
 - `GET /api/rewards/public/student-status/:studentCode`
+- `GET /api/checkins/public/by-student-code/:studentCode`
 - `POST /api/rewards/public/claim-request`
 - `GET /api/rewards/public/claim-status/:requestCode`
 - `POST /api/rewards/redeem`
+
+## 2b. API cho man sinh vien hien thi doanh nghiep da check-in
+
+Frontend student neu muon hien thi danh sach doanh nghiep da ghe, tong so booth da tham gia, va logo doanh nghiep thi goi:
+
+`GET /api/checkins/public/by-student-code/:studentCode`
+
+Vi du:
+
+```http
+GET /api/checkins/public/by-student-code/DUT000001
+```
+
+Response mau:
+
+```json
+{
+  "data": {
+    "studentCode": "DUT000001",
+    "fullName": "Nguyen Van A",
+    "checkedInBooths": 5,
+    "totalBusinesses": 4,
+    "businesses": [
+      {
+        "businessId": "4a6d1fb7-3d08-4378-b63b-17b5ef1cb16d",
+        "businessName": "FPT Software Miền Trung",
+        "publicId": "FPT_Software_ewuyrj",
+        "logoUrl": "https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/FPT_Software_ewuyrj.png",
+        "industry": null,
+        "website": null,
+        "boothId": "00f35b2f-6bb3-44a4-9931-cf3c8e4d53fa",
+        "boothName": "Gian hàng FPT Software Miền Trung",
+        "lastCheckInTime": "2026-04-01T06:32:15.000Z"
+      }
+    ]
+  },
+  "status": 200
+}
+```
+
+Y nghia field:
+
+- `checkedInBooths`: tong so booth duy nhat sinh vien da check-in
+- `totalBusinesses`: tong so doanh nghiep duy nhat sinh vien da ghe
+- `businesses[].logoUrl`: URL day du de frontend render logo bang the `img`
+- `businesses[].publicId`: id asset de frontend dung them neu can mapping/styling rieng
+- `businesses[].lastCheckInTime`: lan check-in moi nhat cua sinh vien voi doanh nghiep do
+
+Frontend co the render card don gian nhu sau:
+
+```tsx
+type VisitedBusiness = {
+  businessId: string;
+  businessName: string;
+  publicId: string | null;
+  logoUrl: string | null;
+  industry: string | null;
+  website: string | null;
+  boothId: string;
+  boothName: string;
+  lastCheckInTime: string;
+};
+
+function VisitedBusinessCard({ business }: { business: VisitedBusiness }) {
+  return (
+    <article>
+      {business.logoUrl ? (
+        <img
+          src={business.logoUrl}
+          alt={business.businessName}
+          width={64}
+          height={64}
+          style={{ objectFit: 'contain' }}
+        />
+      ) : null}
+      <h3>{business.businessName}</h3>
+      <p>{business.boothName}</p>
+      <p>{new Date(business.lastCheckInTime).toLocaleString('vi-VN')}</p>
+    </article>
+  );
+}
+```
+
+Frontend nen uu tien `logoUrl` de hien thi truc tiep. Khong can tu ghep URL tu `publicId`.
 
 ## 3. Flow cho frontend sinh vien
 

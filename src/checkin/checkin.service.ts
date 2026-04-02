@@ -84,26 +84,34 @@ export class CheckinService {
         });
 
         // Deduplicate by businessId, keep earliest checkInTime per business
+        const checkedInBoothIds = new Set<string>();
         const businessMap = new Map<string, {
             businessId: string;
             businessName: string;
+            publicId: string | null;
+            logoUrl: string | null;
             industry: string | null;
             website: string | null;
+            boothId: string;
             boothName: string;
-            checkInTime: Date;
+            lastCheckInTime: Date;
         }>();
 
         for (const checkin of checkins) {
             const biz = checkin.booth?.business;
             if (!biz) continue;
+            checkedInBoothIds.add(checkin.boothId);
             if (!businessMap.has(biz.id)) {
                 businessMap.set(biz.id, {
                     businessId: biz.id,
                     businessName: biz.name,
+                    publicId: biz.publicId ?? null,
+                    logoUrl: biz.logoUrl ?? null,
                     industry: biz.industry ?? null,
                     website: biz.website ?? null,
+                    boothId: checkin.booth.id,
                     boothName: checkin.booth.name,
-                    checkInTime: checkin.checkInTime,
+                    lastCheckInTime: checkin.checkInTime,
                 });
             }
         }
@@ -111,6 +119,7 @@ export class CheckinService {
         return {
             studentCode: student.studentCode,
             fullName: student.fullName,
+            checkedInBooths: checkedInBoothIds.size,
             totalBusinesses: businessMap.size,
             businesses: Array.from(businessMap.values()),
         };

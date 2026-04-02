@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Booth } from '../entities/booth.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
+import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
 
 @Injectable()
 export class SchoolAdminService {
@@ -257,20 +258,14 @@ export class SchoolAdminService {
 
   // GET /school-admin/prizes
   async getPrizes() {
-    // ── Prize 1: Early Bird ──────────────────────────────────────────────
-    // First 50 students by their earliest check-in time (Day 1: 2026-03-04)
-    const day1Start = new Date('2026-03-04T01:00:00.000Z');
-    const day1End = new Date('2026-03-04T10:00:00.000Z');
-
+    const dayStart = DEMO_EVENT_START;
+    const dayEnd = DEMO_EVENT_END;
     const earlyBirdRaw = await this.checkinRepo
       .createQueryBuilder('c')
       .select('c.studentId', 'studentId')
       .addSelect('MIN(c.checkInTime)', 'firstCheckin')
       .innerJoin('c.student', 's')
-      .where('c.checkInTime >= :start AND c.checkInTime < :end', {
-        start: day1Start,
-        end: day1End,
-      })
+      .where('c.checkInTime >= :start AND c.checkInTime < :end', { start: dayStart, end: dayEnd })
       .groupBy('c.studentId')
       .orderBy('MIN(c.checkInTime)', 'ASC')
       .limit(50)
@@ -294,7 +289,6 @@ export class SchoolAdminService {
       };
     });
 
-    // ── Prize 2: Sinh viên tích cực (3+ booths) ─────────────────────────
     const activeMeta = await this.checkinRepo
       .createQueryBuilder('c')
       .select('c.studentId', 'studentId')
@@ -320,45 +314,19 @@ export class SchoolAdminService {
       };
     });
 
-    // ── Prize 3: Vé xổ số Ngày 1 (all Day-1 attendees) ──────────────────
-    const day2Start = new Date('2026-03-05T01:00:00.000Z');
-
-    const day1Pool = await this.checkinRepo
+    const attendancePool = await this.checkinRepo
       .createQueryBuilder('c')
       .select('DISTINCT c.studentId', 'studentId')
       .where('c.checkInTime >= :start AND c.checkInTime < :end', {
-        start: day1Start,
-        end: day1End,
+        start: dayStart,
+        end: dayEnd,
       })
       .getRawMany<{ studentId: string }>();
 
-    const day1Ids = day1Pool.map((r) => r.studentId);
-    const day1Students =
-      day1Ids.length > 0 ? await this.studentRepo.findByIds(day1Ids) : [];
-    const day1List = day1Students.map((s) => ({
-      studentCode: s.studentCode,
-      fullName: s.fullName,
-      major: s.major ?? null,
-      department: s.department ?? null,
-      className: s.className ?? null,
-    }));
-
-    // ── Prize 4: Vé xổ số Ngày 2 (all Day-2 attendees) ──────────────────
-    const day2End = new Date('2026-03-05T06:00:00.000Z');
-
-    const day2Pool = await this.checkinRepo
-      .createQueryBuilder('c')
-      .select('DISTINCT c.studentId', 'studentId')
-      .where('c.checkInTime >= :start AND c.checkInTime < :end', {
-        start: day2Start,
-        end: day2End,
-      })
-      .getRawMany<{ studentId: string }>();
-
-    const day2Ids = day2Pool.map((r) => r.studentId);
-    const day2Students =
-      day2Ids.length > 0 ? await this.studentRepo.findByIds(day2Ids) : [];
-    const day2List = day2Students.map((s) => ({
+    const attendanceIds = attendancePool.map((r) => r.studentId);
+    const attendanceStudents =
+      attendanceIds.length > 0 ? await this.studentRepo.findByIds(attendanceIds) : [];
+    const attendanceList = attendanceStudents.map((s) => ({
       studentCode: s.studentCode,
       fullName: s.fullName,
       major: s.major ?? null,
@@ -371,9 +339,9 @@ export class SchoolAdminService {
         id: 'prize-early-bird',
         name: 'Quà tặng Sơ cấp (Early Bird)',
         type: 'early_bird' as const,
-        description: '50 sinh viên đến sớm nhất trong ngày 04/03',
+        description: `50 sinh viên đến sớm nhất trong ngày ${DEMO_EVENT_DATE}`,
         quantity: 50,
-        qualificationRule: 'Check-in sớm nhất ngày 04/03',
+        qualificationRule: `Check-in sớm nhất ngày ${DEMO_EVENT_DATE}`,
         eligible: earlyBirdList,
         eligibleCount: earlyBirdList.length,
       },
@@ -388,24 +356,14 @@ export class SchoolAdminService {
         eligibleCount: activeList.length,
       },
       {
-        id: 'prize-lucky-day1',
-        name: 'Vé xổ số may mắn – Ngày 04/03',
+        id: 'prize-lucky-day',
+        name: `Vé xổ số may mắn – Ngày ${DEMO_EVENT_DATE}`,
         type: 'lucky_draw' as const,
-        description: 'Tất cả sinh viên tham dự Ngày 1 (04/03) đều có vé xổ số',
-        quantity: day1List.length,
-        qualificationRule: 'Tham dự ngày 04/03',
-        eligible: day1List,
-        eligibleCount: day1List.length,
-      },
-      {
-        id: 'prize-lucky-day2',
-        name: 'Vé xổ số may mắn – Ngày 05/03',
-        type: 'lucky_draw' as const,
-        description: 'Tất cả sinh viên tham dự Ngày 2 (05/03) đều có vé xổ số',
-        quantity: day2List.length,
-        qualificationRule: 'Tham dự ngày 05/03',
-        eligible: day2List,
-        eligibleCount: day2List.length,
+        description: `Tất cả sinh viên tham dự ngày ${DEMO_EVENT_DATE} đều có vé xổ số`,
+        quantity: attendanceList.length,
+        qualificationRule: `Tham dự ngày ${DEMO_EVENT_DATE}`,
+        eligible: attendanceList,
+        eligibleCount: attendanceList.length,
       },
     ];
   }

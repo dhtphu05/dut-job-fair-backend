@@ -15,6 +15,12 @@ export class Business {
     @Column({ length: 255 })
     name: string;
 
+    @Column({ name: 'public_id', type: 'varchar', length: 255, nullable: true })
+    publicId: string | null;
+
+    @Column({ name: 'logo_url', type: 'varchar', length: 500, nullable: true })
+    logoUrl: string | null;
+
     @Column({ length: 100, nullable: true })
     industry: string;
 

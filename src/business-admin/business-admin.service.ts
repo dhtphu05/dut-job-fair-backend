@@ -82,7 +82,7 @@ export class BusinessAdminService {
             .orderBy('hour')
             .getRawMany<{ hour: string; count: string }>();
 
-        // Day distribution (day 1 = 04/03, day 2 = 05/03)
+        // Day distribution by calendar date in the current demo dataset
         const daily = await this.checkinRepo
             .createQueryBuilder('c')
             .select("DATE(c.checkInTime)", 'date')
