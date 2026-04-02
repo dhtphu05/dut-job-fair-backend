@@ -418,6 +418,115 @@ Ly do:
 - Backend `POST /api/rewards/redeem` chi cho phep role `school_admin` hoac `system_admin`
 - Hien tai de frontend tich hop nhanh, staff co the dang nhap bang tai khoan `school admin`
 
+## 9. API admin xem danh sach sinh vien theo tung moc qua
+
+API nay danh cho frontend admin/quay qua khi can xem theo tung moc:
+
+- ai da du dieu kien
+- ai da claim
+- ai da nhan qua
+
+API:
+
+`GET /api/rewards/milestones/:id/students`
+
+API nay can Bearer token cua `school_admin` hoac `system_admin`.
+
+### Query params
+
+- `status`: `all` | `eligible` | `pending` | `claimed` | `expired` | `cancelled`
+- `page`: mac dinh `1`
+- `pageSize`: mac dinh `20`
+- `search`: tim theo MSSV hoac ho ten
+
+Vi du:
+
+```http
+GET /api/rewards/milestones/9c4d2b74-3b65-4f87-9b44-6fc5dfc6c2d9/students?status=eligible&page=1&pageSize=20
+Authorization: Bearer <access_token>
+```
+
+Response mau:
+
+```json
+{
+  "data": {
+    "milestone": {
+      "id": "9c4d2b74-3b65-4f87-9b44-6fc5dfc6c2d9",
+      "name": "Moc 5 booth",
+      "requiredBooths": 5,
+      "description": "Qua cho sinh vien check-in du 5 booth",
+      "isActive": true
+    },
+    "summary": {
+      "totalEligible": 120,
+      "totalPending": 8,
+      "totalClaimed": 34,
+      "totalExpired": 2,
+      "totalCancelled": 0
+    },
+    "filter": {
+      "status": "eligible",
+      "search": null
+    },
+    "items": [
+      {
+        "student": {
+          "id": "student-id",
+          "studentCode": "102280313",
+          "fullName": "Sinh vien Demo 102280313",
+          "email": "102280313@sv.dut.edu.vn",
+          "phone": "0900000313",
+          "major": "Ky thuat phan mem",
+          "department": "Cong nghe Thong tin",
+          "className": "22TH1",
+          "year": 4,
+          "school": "Truong Dai hoc Bach khoa – Dai hoc Da Nang"
+        },
+        "checkedInBooths": 7,
+        "requiredBooths": 5,
+        "remainingBooths": 0,
+        "eligible": true,
+        "status": "eligible",
+        "claim": null
+      }
+    ],
+    "total": 120,
+    "page": 1,
+    "pageSize": 20,
+    "hasMore": true
+  },
+  "status": 200
+}
+```
+
+### Y nghia status
+
+- `eligible`: da du so booth cho moc nay, nhung chua co claim active va chua nhan qua
+- `pending`: da tao claim, dang cho xac nhan/redeem
+- `claimed`: da nhan qua
+- `expired`: claim da het han
+- `cancelled`: claim da bi huy
+- `all`: gom tat ca sinh vien thuoc cac nhom tren
+
+### Logic render de xuat cho frontend admin
+
+- Tab `Du dieu kien`: goi `status=eligible`
+- Tab `Dang cho nhan qua`: goi `status=pending`
+- Tab `Da nhan qua`: goi `status=claimed`
+- Tab `Tat ca`: goi `status=all`
+
+Moi dong co the hien:
+
+- MSSV
+- ho ten
+- so booth da check-in
+- so booth can dat (`requiredBooths`)
+- trang thai hien tai
+- thong tin claim neu co: `requestCode`, `requestedAt`, `claimedAt`
+
+Neu `claim.confirmedBy` khac `null`, frontend co the hien them nguoi da xac nhan nhan qua.
+
 Tai khoan seed dev hien co:
 
 - email: `school@example.com`

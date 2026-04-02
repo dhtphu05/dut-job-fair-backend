@@ -24,6 +24,7 @@ import {
   CreateRewardClaimRequestDto,
   CreateRewardMilestoneDto,
   RedeemRewardCodeDto,
+  RewardMilestoneStudentsQueryDto,
   UpdateRewardMilestoneDto,
 } from './dto/reward.dto';
 import { RewardsService } from './rewards.service';
@@ -99,6 +100,33 @@ export class RewardsController {
   @Get('claims/pending')
   getPendingClaims(@Query('page') p?: string, @Query('pageSize') ps?: string) {
     return this.rewardsService.getPendingClaims(p ? +p : 1, ps ? +ps : 20);
+  }
+
+  @ApiOperation({
+    summary:
+      'Danh sách sinh viên theo từng mốc quà: eligible, pending, claimed, expired, cancelled hoặc all',
+  })
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SCHOOL_ADMIN, UserRole.SYSTEM_ADMIN)
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['all', 'eligible', 'pending', 'claimed', 'expired', 'cancelled'],
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'pageSize', required: false, example: 20 })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Tìm theo MSSV hoặc họ tên',
+  })
+  @Get('milestones/:id/students')
+  getMilestoneStudents(
+    @Param('id', ParseUUIDPipe) milestoneId: string,
+    @Query() query: RewardMilestoneStudentsQueryDto,
+  ) {
+    return this.rewardsService.getMilestoneStudents(milestoneId, query);
   }
 
   @ApiOperation({ summary: 'Xác nhận sinh viên đã nhận quà' })

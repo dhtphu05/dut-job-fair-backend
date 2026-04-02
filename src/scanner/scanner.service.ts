@@ -207,6 +207,8 @@ export class ScannerService {
           email: c.student?.email,
           phone: c.student?.phone,
           major: c.student?.major,
+          department: c.student?.department,
+          className: c.student?.className,
         },
       })),
       total,
@@ -246,16 +248,19 @@ export class ScannerService {
   }
 
   private async upsertStudentFromQr(dto: QrScanDto) {
-    await this.studentRepo.upsert(
-      {
-        studentCode: dto.ma_so_sinh_vien,
-        fullName: dto.ho_ten,
-        email: dto.email ?? null,
-        phone: dto.phone ?? null,
-        major: dto.lop,
-      },
-      ['studentCode'],
-    );
+    const studentPayload: Partial<Student> = {
+      studentCode: dto.ma_so_sinh_vien,
+      fullName: dto.ho_ten,
+      email: dto.email ?? null,
+      phone: dto.phone ?? null,
+      className: dto.lop,
+    };
+
+    if (dto.khoa !== undefined) {
+      studentPayload.department = dto.khoa;
+    }
+
+    await this.studentRepo.upsert(studentPayload, ['studentCode']);
 
     const student = await this.studentRepo.findOne({
       where: { studentCode: dto.ma_so_sinh_vien },
@@ -322,6 +327,8 @@ export class ScannerService {
       fullName: student.fullName,
       email: student.email,
       major: student.major,
+      department: student.department,
+      className: student.className,
       year: student.year,
       school: student.school?.name,
     };

@@ -16,8 +16,50 @@ import {
   CreateRewardClaimRequestDto,
   CreateRewardMilestoneDto,
   RedeemRewardCodeDto,
+  RewardMilestoneStudentsQueryDto,
   UpdateRewardMilestoneDto,
 } from './dto/reward.dto';
+
+type RewardMilestoneStudentStatus =
+  | 'eligible'
+  | 'pending'
+  | 'claimed'
+  | 'expired'
+  | 'cancelled'
+  | 'locked';
+
+type RewardMilestoneStudentRow = {
+  student_id: string;
+  student_code: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  major: string | null;
+  department: string | null;
+  class_name: string | null;
+  year: number | null;
+  school_name: string | null;
+  checked_in_booths: string | number;
+  derived_status: RewardMilestoneStudentStatus;
+  claim_id: string | null;
+  claim_request_code: string | null;
+  claim_status: RewardClaim['status'] | null;
+  claim_requested_at: Date | string | null;
+  claim_expires_at: Date | string | null;
+  claim_claimed_at: Date | string | null;
+  claim_confirmed_by_user_id: string | null;
+  confirmed_by_id: string | null;
+  confirmed_by_name: string | null;
+  confirmed_by_email: string | null;
+};
+
+type RewardMilestoneSummaryRow = {
+  total_eligible: string | number;
+  total_pending: string | number;
+  total_claimed: string | number;
+  total_expired: string | number;
+  total_cancelled: string | number;
+};
 
 @Injectable()
 export class RewardsService {
@@ -582,8 +624,317 @@ export class RewardsService {
     };
   }
 
+  async getMilestoneStudents(
+    milestoneId: string,
+    query: RewardMilestoneStudentsQueryDto,
+  ) {
+    const milestone = await this.milestoneRepo.findOne({
+      where: { id: milestoneId },
+    });
+    if (!milestone) throw new NotFoundException('Mốc quà không tồn tại');
+
+    const statusFilter = query.status ?? 'all';
+    const page = query.page ?? 1;
+    const pageSize = query.pageSize ?? 20;
+    const search = query.search?.trim() ?? '';
+
+    await this.expirePendingClaimsForMilestone(milestoneId);
+
+    const baseParams = [milestoneId, milestone.requiredBooths] as Array<
+      string | number
+    >;
+    const { clause: filterClause, params: filterParams } =
+      this.buildMilestoneStudentsFilterClause(statusFilter, search, baseParams);
+
+    const dataQuery = `
+      WITH booth_counts AS (
+        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        FROM checkins c
+        GROUP BY c.student_id
+      ),
+      latest_claims AS (
+        SELECT DISTINCT ON (rc.student_id)
+          rc.id,
+          rc.student_id,
+          rc.status,
+          rc.request_code,
+          rc.requested_at,
+          rc.expires_at,
+          rc.claimed_at,
+          rc.confirmed_by_user_id
+        FROM reward_claims rc
+        WHERE rc.milestone_id = $1
+        ORDER BY rc.student_id, rc.requested_at DESC, rc.updated_at DESC, rc.id DESC
+      ),
+      classified AS (
+        SELECT
+          s.id AS student_id,
+          s.student_code,
+          s.full_name,
+          s.email,
+          s.phone,
+          s.major,
+          s.department,
+          s.class_name,
+          s.year,
+          sch.name AS school_name,
+          COALESCE(bc.checked_in_booths, 0) AS checked_in_booths,
+          lc.id AS claim_id,
+          lc.request_code AS claim_request_code,
+          lc.status AS claim_status,
+          lc.requested_at AS claim_requested_at,
+          lc.expires_at AS claim_expires_at,
+          lc.claimed_at AS claim_claimed_at,
+          lc.confirmed_by_user_id AS claim_confirmed_by_user_id,
+          u.id AS confirmed_by_id,
+          u.name AS confirmed_by_name,
+          u.email AS confirmed_by_email,
+          CASE
+            WHEN lc.status = 'claimed' THEN 'claimed'
+            WHEN lc.status = 'pending' AND lc.expires_at IS NOT NULL AND lc.expires_at <= NOW() THEN 'expired'
+            WHEN lc.status = 'pending' THEN 'pending'
+            WHEN lc.status = 'expired' THEN 'expired'
+            WHEN lc.status = 'cancelled' THEN 'cancelled'
+            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            ELSE 'locked'
+          END AS derived_status
+        FROM students s
+        LEFT JOIN schools sch ON sch.id = s.school_id
+        LEFT JOIN booth_counts bc ON bc.student_id = s.id
+        LEFT JOIN latest_claims lc ON lc.student_id = s.id
+        LEFT JOIN users u ON u.id = lc.confirmed_by_user_id
+      )
+      SELECT *
+      FROM classified
+      ${filterClause}
+      ORDER BY
+        CASE WHEN claim_requested_at IS NULL THEN 1 ELSE 0 END ASC,
+        claim_requested_at DESC,
+        student_code ASC
+      LIMIT $${filterParams.length + 1}
+      OFFSET $${filterParams.length + 2}
+    `;
+
+    const totalQuery = `
+      WITH booth_counts AS (
+        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        FROM checkins c
+        GROUP BY c.student_id
+      ),
+      latest_claims AS (
+        SELECT DISTINCT ON (rc.student_id)
+          rc.id,
+          rc.student_id,
+          rc.status,
+          rc.request_code,
+          rc.requested_at,
+          rc.expires_at,
+          rc.claimed_at,
+          rc.confirmed_by_user_id
+        FROM reward_claims rc
+        WHERE rc.milestone_id = $1
+        ORDER BY rc.student_id, rc.requested_at DESC, rc.updated_at DESC, rc.id DESC
+      ),
+      classified AS (
+        SELECT
+          s.id AS student_id,
+          s.student_code,
+          s.full_name,
+          COALESCE(bc.checked_in_booths, 0) AS checked_in_booths,
+          CASE
+            WHEN lc.status = 'claimed' THEN 'claimed'
+            WHEN lc.status = 'pending' AND lc.expires_at IS NOT NULL AND lc.expires_at <= NOW() THEN 'expired'
+            WHEN lc.status = 'pending' THEN 'pending'
+            WHEN lc.status = 'expired' THEN 'expired'
+            WHEN lc.status = 'cancelled' THEN 'cancelled'
+            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            ELSE 'locked'
+          END AS derived_status
+        FROM students s
+        LEFT JOIN booth_counts bc ON bc.student_id = s.id
+        LEFT JOIN latest_claims lc ON lc.student_id = s.id
+      )
+      SELECT COUNT(*)::int AS total
+      FROM classified
+      ${filterClause}
+    `;
+
+    const summaryQuery = `
+      WITH booth_counts AS (
+        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        FROM checkins c
+        GROUP BY c.student_id
+      ),
+      latest_claims AS (
+        SELECT DISTINCT ON (rc.student_id)
+          rc.student_id,
+          rc.status,
+          rc.expires_at
+        FROM reward_claims rc
+        WHERE rc.milestone_id = $1
+        ORDER BY rc.student_id, rc.requested_at DESC, rc.updated_at DESC, rc.id DESC
+      ),
+      classified AS (
+        SELECT
+          CASE
+            WHEN lc.status = 'claimed' THEN 'claimed'
+            WHEN lc.status = 'pending' AND lc.expires_at IS NOT NULL AND lc.expires_at <= NOW() THEN 'expired'
+            WHEN lc.status = 'pending' THEN 'pending'
+            WHEN lc.status = 'expired' THEN 'expired'
+            WHEN lc.status = 'cancelled' THEN 'cancelled'
+            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            ELSE 'locked'
+          END AS derived_status
+        FROM students s
+        LEFT JOIN booth_counts bc ON bc.student_id = s.id
+        LEFT JOIN latest_claims lc ON lc.student_id = s.id
+      )
+      SELECT
+        COUNT(*) FILTER (WHERE derived_status = 'eligible')::int AS total_eligible,
+        COUNT(*) FILTER (WHERE derived_status = 'pending')::int AS total_pending,
+        COUNT(*) FILTER (WHERE derived_status = 'claimed')::int AS total_claimed,
+        COUNT(*) FILTER (WHERE derived_status = 'expired')::int AS total_expired,
+        COUNT(*) FILTER (WHERE derived_status = 'cancelled')::int AS total_cancelled
+      FROM classified
+      WHERE derived_status <> 'locked'
+    `;
+
+    const [rows, totalRows, summaryRows] = (await Promise.all([
+      this.dataSource.query(dataQuery, [
+        ...filterParams,
+        pageSize,
+        (page - 1) * pageSize,
+      ]),
+      this.dataSource.query(totalQuery, filterParams),
+      this.dataSource.query(summaryQuery, baseParams),
+    ])) as [
+      RewardMilestoneStudentRow[],
+      Array<{ total: string | number }>,
+      RewardMilestoneSummaryRow[],
+    ];
+
+    const total = Number(totalRows[0]?.total ?? 0);
+    const summary = summaryRows[0];
+
+    return {
+      milestone: {
+        id: milestone.id,
+        name: milestone.name,
+        requiredBooths: milestone.requiredBooths,
+        description: milestone.description,
+        isActive: milestone.isActive,
+      },
+      summary: {
+        totalEligible: Number(summary?.total_eligible ?? 0),
+        totalPending: Number(summary?.total_pending ?? 0),
+        totalClaimed: Number(summary?.total_claimed ?? 0),
+        totalExpired: Number(summary?.total_expired ?? 0),
+        totalCancelled: Number(summary?.total_cancelled ?? 0),
+      },
+      filter: {
+        status: statusFilter,
+        search: search ? search : null,
+      },
+      items: rows.map((row) =>
+        this.mapMilestoneStudentRowToItem(row, milestone.requiredBooths),
+      ),
+      total,
+      page,
+      pageSize,
+      hasMore: page * pageSize < total,
+    };
+  }
+
   private generateRequestCode() {
     return `RW-${randomBytes(4).toString('hex').toUpperCase()}`;
+  }
+
+  private async expirePendingClaimsForMilestone(milestoneId: string) {
+    const now = new Date();
+    await this.claimRepo
+      .createQueryBuilder()
+      .update(RewardClaim)
+      .set({ status: 'expired' })
+      .where('milestoneId = :milestoneId', { milestoneId })
+      .andWhere('status = :status', { status: 'pending' })
+      .andWhere('expiresAt IS NOT NULL')
+      .andWhere('expiresAt <= :now', { now })
+      .execute();
+  }
+
+  private buildMilestoneStudentsFilterClause(
+    statusFilter: Exclude<RewardMilestoneStudentsQueryDto['status'], undefined>,
+    search: string,
+    baseParams: Array<string | number>,
+  ) {
+    const conditions = [`derived_status <> 'locked'`];
+    const params = [...baseParams];
+
+    if (statusFilter !== 'all') {
+      params.push(statusFilter);
+      conditions.push(`derived_status = $${params.length}`);
+    }
+
+    if (search) {
+      params.push(`%${search.toLowerCase()}%`);
+      conditions.push(
+        `(LOWER(student_code) LIKE $${params.length} OR LOWER(full_name) LIKE $${params.length})`,
+      );
+    }
+
+    return {
+      clause: `WHERE ${conditions.join(' AND ')}`,
+      params,
+    };
+  }
+
+  private mapMilestoneStudentRowToItem(
+    row: RewardMilestoneStudentRow,
+    requiredBooths: number,
+  ) {
+    const checkedInBooths = Number(row.checked_in_booths ?? 0);
+    const eligible = checkedInBooths >= requiredBooths;
+    const status = row.derived_status === 'locked' ? 'eligible' : row.derived_status;
+
+    return {
+      student: {
+        id: row.student_id,
+        studentCode: row.student_code,
+        fullName: row.full_name,
+        email: row.email,
+        phone: row.phone,
+        major: row.major,
+        department: row.department,
+        className: row.class_name,
+        year: row.year,
+        school: row.school_name,
+      },
+      checkedInBooths,
+      requiredBooths,
+      remainingBooths:
+        checkedInBooths >= requiredBooths ? 0 : requiredBooths - checkedInBooths,
+      eligible,
+      status,
+      claim:
+        status === 'eligible' || !row.claim_id
+          ? null
+          : {
+              id: row.claim_id,
+              requestCode: row.claim_request_code,
+              status,
+              requestedAt: row.claim_requested_at,
+              expiresAt: row.claim_expires_at,
+              claimedAt: row.claim_claimed_at,
+              confirmedByUserId: row.claim_confirmed_by_user_id,
+              confirmedBy: row.confirmed_by_id
+                ? {
+                    id: row.confirmed_by_id,
+                    name: row.confirmed_by_name,
+                    email: row.confirmed_by_email,
+                  }
+                : null,
+            },
+    };
   }
 
   private async normalizeClaimStatus(claim: RewardClaim) {

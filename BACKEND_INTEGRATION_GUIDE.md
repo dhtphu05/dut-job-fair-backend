@@ -80,6 +80,13 @@ Các user có quyền scan tại booth sẽ gọi API này:
 | `POST` | `/business-admin/export-visitors` | Phục vụ chức năng Export File Excel sinh viên tham gia. |
 | `PATCH`| `/business-admin/booth/:boothId/settings` | Cài đặt gian hàng (staff, name, vị trí). |
 
+### 3.5. Rewards Admin (`/api/rewards`)
+| Method | Endpoint | Mô tả & Payload dự kiến |
+|---|---|---|
+| `GET` | `/rewards/milestones` | Lấy danh sách mốc quà. |
+| `GET` | `/rewards/milestones/:id/students?status=eligible|pending|claimed|expired|cancelled|all&page=1&pageSize=20&search=...` | Lấy danh sách sinh viên theo từng mốc quà để frontend admin lọc người đã đủ điều kiện, đã claim, hoặc đã nhận quà. |
+| `GET` | `/rewards/claims/pending` | Lấy riêng danh sách claim đang chờ xác nhận. |
+
 ---
 
 ## 4. Dấu hiệu Wrapper & Tiêu chuẩn Response API
@@ -139,6 +146,61 @@ Nên Insert Script hoặc Seed data tương tự file `lib/mock-data.ts` khi dev
         "lastCheckInTime": "2026-04-01T06:32:15.000Z"
       }
     ]
+  },
+  "status": 200
+}
+```
+
+### Mau response cho frontend admin theo tung moc qua
+
+```json
+{
+  "data": {
+    "milestone": {
+      "id": "uuid",
+      "name": "Moc 5 booth",
+      "requiredBooths": 5,
+      "description": "Qua cho sinh vien check-in du 5 booth",
+      "isActive": true
+    },
+    "summary": {
+      "totalEligible": 120,
+      "totalPending": 8,
+      "totalClaimed": 34,
+      "totalExpired": 2,
+      "totalCancelled": 0
+    },
+    "filter": {
+      "status": "claimed",
+      "search": null
+    },
+    "items": [
+      {
+        "student": {
+          "id": "student-id",
+          "studentCode": "102280313",
+          "fullName": "Sinh vien Demo 102280313"
+        },
+        "checkedInBooths": 7,
+        "requiredBooths": 5,
+        "remainingBooths": 0,
+        "eligible": true,
+        "status": "claimed",
+        "claim": {
+          "id": "claim-id",
+          "requestCode": "RW-AB12CD34",
+          "status": "claimed",
+          "requestedAt": "2026-04-01T09:00:00.000Z",
+          "expiresAt": "2026-04-01T09:15:00.000Z",
+          "claimedAt": "2026-04-01T09:05:00.000Z",
+          "confirmedByUserId": "user-id"
+        }
+      }
+    ],
+    "total": 34,
+    "page": 1,
+    "pageSize": 20,
+    "hasMore": true
   },
   "status": 200
 }

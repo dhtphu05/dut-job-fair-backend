@@ -1,9 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
+  IsIn,
   IsString,
   IsUUID,
   Min,
@@ -87,4 +89,37 @@ export class RedeemRewardCodeDto {
   @IsString()
   @IsNotEmpty()
   requestCode: string;
+}
+
+export class RewardMilestoneStudentsQueryDto {
+  @ApiPropertyOptional({
+    example: 'all',
+    enum: ['all', 'eligible', 'pending', 'claimed', 'expired', 'cancelled'],
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['all', 'eligible', 'pending', 'claimed', 'expired', 'cancelled'])
+  status?: 'all' | 'eligible' | 'pending' | 'claimed' | 'expired' | 'cancelled';
+
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ example: 20, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  pageSize?: number;
+
+  @ApiPropertyOptional({
+    example: '102280313',
+    description: 'Tìm theo MSSV hoặc họ tên',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

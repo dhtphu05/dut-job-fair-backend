@@ -41,6 +41,14 @@ export class QrScanDto {
     @IsNotEmpty()
     lop: string;
 
+    @ApiPropertyOptional({
+        example: 'Khoa Công nghệ Thông tin',
+        description: 'Khoa của sinh viên từ QR DUT',
+    })
+    @IsOptional()
+    @IsString()
+    khoa?: string;
+
     @ApiPropertyOptional({ example: 'user@gmail.com' })
     @IsOptional()
     @IsEmail()
