@@ -1,10 +1,11 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Booth, BoothType } from '../entities/booth.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { UserRole } from '../entities/user.entity';
+import { CreateWorkshopAttendanceDto } from './dto/workshop-attendance.dto';
 
 type AuthenticatedBusinessAdminUser = {
     id: string;
@@ -14,6 +15,8 @@ type AuthenticatedBusinessAdminUser = {
 
 type WorkshopAttendanceRow = {
     stt: number;
+    studentId: string;
+    workshopName: string;
     fullName: string;
     studentCode: string;
     className: string | null;
@@ -92,7 +95,7 @@ export class BusinessAdminService {
 
         const recentScans = await this.checkinRepo.find({
             where: boothIds.map((id) => ({ boothId: id })),
-            relations: ['student', 'booth'],
+            relations: ['student', 'booth', 'booth.business'],
             order: { checkInTime: 'DESC' },
             take: 10,
         });
@@ -108,9 +111,16 @@ export class BusinessAdminService {
             booths: booths.map((b) => ({ id: b.id, name: b.name, location: b.location, capacity: b.capacity, type: b.type })),
             recentScans: recentScans.map((c) => ({
                 id: c.id,
-                student: { id: c.student?.id, fullName: c.student?.fullName, studentCode: c.student?.studentCode, major: c.student?.major },
+                student: {
+                    id: c.student?.id,
+                    fullName: c.student?.fullName,
+                    studentCode: c.student?.studentCode,
+                    department: c.student?.department ?? null,
+                    phone: c.student?.phone ?? null,
+                },
                 checkInTime: c.checkInTime,
-                booth: c.booth?.name,
+                booth: c.booth?.business?.name ?? c.booth?.name,
+                boothName: c.booth?.name,
                 boothType: c.booth?.type ?? BoothType.BOOTH,
             })),
         };
@@ -150,16 +160,16 @@ export class BusinessAdminService {
             .orderBy('date')
             .getRawMany<{ date: string; count: string; uniqueStudents: string }>();
 
-        // Major distribution from check-ins of this booth
-        const majorDist = await this.checkinRepo
+        // Department distribution from check-ins of this booth
+        const departmentDist = await this.checkinRepo
             .createQueryBuilder('c')
             .leftJoin('c.student', 's')
-            .select('s.major', 'major')
+            .select('s.department', 'department')
             .addSelect('COUNT(*)', 'count')
-            .where('c.boothId = :id AND s.major IS NOT NULL', { id: boothId })
-            .groupBy('s.major')
+            .where('c.boothId = :id AND s.department IS NOT NULL', { id: boothId })
+            .groupBy('s.department')
             .orderBy('count', 'DESC')
-            .getRawMany<{ major: string; count: string }>();
+            .getRawMany<{ department: string; count: string }>();
 
         return {
             booth: { id: booth.id, name: booth.name, location: booth.location, type: booth.type },
@@ -173,7 +183,10 @@ export class BusinessAdminService {
                 count: parseInt(d.count),
                 uniqueStudents: parseInt(d.uniqueStudents),
             })),
-            majorDistribution: majorDist.map((m) => ({ major: m.major, count: parseInt(m.count) })),
+            departmentDistribution: departmentDist.map((d) => ({
+                department: d.department,
+                count: parseInt(d.count),
+            })),
         };
     }
 
@@ -195,7 +208,6 @@ export class BusinessAdminService {
                     fullName: c.student?.fullName,
                     email: c.student?.email ?? null,
                     phone: c.student?.phone ?? null,
-                    major: c.student?.major,
                     department: (c.student as any)?.department ?? null,
                     className: (c.student as any)?.className ?? null,
                     year: c.student?.year,
@@ -224,6 +236,7 @@ export class BusinessAdminService {
             workshop: {
                 id: booth.id,
                 name: booth.name,
+                displayName: booth.business?.name ?? booth.name,
                 location: booth.location,
                 business: booth.business?.name ?? booth.name,
                 type: booth.type,
@@ -233,15 +246,129 @@ export class BusinessAdminService {
         };
     }
 
+    async createWorkshopAttendanceManual(
+        user: AuthenticatedBusinessAdminUser,
+        dto: CreateWorkshopAttendanceDto,
+        requestedBoothId?: string,
+    ) {
+        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
+        const existingStudent = await this.studentRepo.findOne({
+            where: { studentCode: dto.studentCode.trim() },
+        });
+
+        const studentPayload: Partial<Student> = {
+            studentCode: dto.studentCode.trim(),
+            fullName: dto.fullName.trim(),
+            email: dto.email?.trim() || null,
+            phone: dto.phone?.trim() || null,
+            className: dto.className?.trim() || null,
+            department: dto.department?.trim() || null,
+            major: null,
+            year: this.deriveYearFromStudentCode(dto.studentCode),
+        };
+
+        let student: Student;
+        if (existingStudent) {
+            Object.assign(existingStudent, studentPayload);
+            student = await this.studentRepo.save(existingStudent);
+        } else {
+            student = await this.studentRepo.save(
+                this.studentRepo.create(studentPayload),
+            );
+        }
+
+        const duplicate = await this.checkinRepo.findOne({
+            where: { studentId: student.id, boothId: booth.id },
+            order: { checkInTime: 'ASC' },
+        });
+        if (duplicate) {
+            throw new BadRequestException(
+                `Sinh viên ${student.studentCode} đã có trong danh sách điểm danh của hội thảo này`,
+            );
+        }
+
+        const checkin = await this.checkinRepo.save(
+            this.checkinRepo.create({
+                studentId: student.id,
+                boothId: booth.id,
+                status: 'active',
+                notes: 'Điểm danh thủ công',
+            }),
+        );
+
+        if (dto.checkInTime) {
+            await this.checkinRepo.update(checkin.id, {
+                checkInTime: new Date(dto.checkInTime),
+            });
+        }
+
+        const refreshedRows = await this.getWorkshopAttendanceRows(booth.id);
+        const createdRow = refreshedRows.find(
+            (row) => row.studentCode === student.studentCode,
+        );
+
+        return {
+            message: 'Đã thêm sinh viên vào danh sách điểm danh hội thảo',
+            workshop: {
+                id: booth.id,
+                name: booth.name,
+                displayName: booth.business?.name ?? booth.name,
+                type: booth.type,
+            },
+            item: createdRow ?? null,
+        };
+    }
+
+    async deleteWorkshopAttendance(
+        user: AuthenticatedBusinessAdminUser,
+        studentCode: string,
+        requestedBoothId?: string,
+    ) {
+        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
+        const normalizedStudentCode = studentCode.trim();
+        const student = await this.studentRepo.findOne({
+            where: { studentCode: normalizedStudentCode },
+        });
+        if (!student) {
+            throw new NotFoundException(
+                `Không tìm thấy sinh viên với MSSV ${normalizedStudentCode}`,
+            );
+        }
+
+        const checkins = await this.checkinRepo.find({
+            where: { boothId: booth.id, studentId: student.id },
+        });
+        if (checkins.length === 0) {
+            throw new NotFoundException(
+                `Sinh viên ${normalizedStudentCode} không có trong danh sách điểm danh của hội thảo này`,
+            );
+        }
+
+        await this.checkinRepo.remove(checkins);
+
+        return {
+            message: 'Đã xoá sinh viên khỏi danh sách điểm danh hội thảo',
+            deletedStudentCode: normalizedStudentCode,
+            deletedCheckins: checkins.length,
+            workshop: {
+                id: booth.id,
+                name: booth.name,
+                displayName: booth.business?.name ?? booth.name,
+                type: booth.type,
+            },
+        };
+    }
+
     async exportWorkshopAttendanceCsv(
         user: AuthenticatedBusinessAdminUser,
         requestedBoothId?: string,
     ) {
         const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
         const rows = await this.getWorkshopAttendanceRows(booth.id);
-        const headers = ['STT', 'Ho va ten', 'MSSV', 'Lop', 'Khoa', 'SDT', 'Timestamp'];
+        const headers = ['STT', 'Tên hội thảo', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
         const csvRows = rows.map((row) => [
             row.stt.toString(),
+            row.workshopName,
             row.fullName,
             row.studentCode,
             row.className ?? '',
@@ -269,9 +396,10 @@ export class BusinessAdminService {
     ) {
         const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
         const rows = await this.getWorkshopAttendanceRows(booth.id);
-        const headers = ['STT', 'Ho va ten', 'MSSV', 'Lop', 'Khoa', 'SDT', 'Timestamp'];
+        const headers = ['STT', 'Tên hội thảo', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
         const bodyRows = rows.map((row) => [
             row.stt.toString(),
+            row.workshopName,
             row.fullName,
             row.studentCode,
             row.className ?? '',
@@ -299,7 +427,7 @@ export class BusinessAdminService {
             'xmlns:o="urn:schemas-microsoft-com:office:office" ' +
             'xmlns:x="urn:schemas-microsoft-com:office:excel" ' +
             'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
-            '<Worksheet ss:Name="Workshop Attendance">' +
+            '<Worksheet ss:Name="Điểm danh hội thảo">' +
             '<Table>' +
             xmlRows +
             '</Table>' +
@@ -345,6 +473,12 @@ export class BusinessAdminService {
     private async getWorkshopAttendanceRows(
         boothId: string,
     ): Promise<WorkshopAttendanceRow[]> {
+        const booth = await this.boothRepo.findOne({
+            where: { id: boothId },
+            relations: ['business'],
+        });
+        if (!booth) throw new NotFoundException('Workshop không tồn tại');
+
         const checkins = await this.checkinRepo.find({
             where: { boothId },
             relations: ['student'],
@@ -360,6 +494,8 @@ export class BusinessAdminService {
 
             rows.push({
                 stt: rows.length + 1,
+                studentId: checkin.student.id,
+                workshopName: booth.business?.name ?? booth.name,
                 fullName: checkin.student.fullName,
                 studentCode: checkin.student.studentCode,
                 className: checkin.student.className ?? null,
@@ -403,6 +539,18 @@ export class BusinessAdminService {
         const date = new Date(value);
         const pad = (input: number) => input.toString().padStart(2, '0');
         return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    private deriveYearFromStudentCode(studentCode: string) {
+        const prefix = studentCode.trim().slice(0, 5);
+        const yearMap: Record<string, number> = {
+            '10221': 5,
+            '10222': 4,
+            '10223': 3,
+            '10224': 2,
+            '10225': 1,
+        };
+        return yearMap[prefix] ?? null;
     }
 
     private escapeXml(value: string) {

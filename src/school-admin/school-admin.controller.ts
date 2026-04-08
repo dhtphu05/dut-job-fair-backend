@@ -1,10 +1,11 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { SchoolAdminService } from './school-admin.service';
+import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
 
 @ApiTags('school-admin')
 @ApiBearerAuth('access-token')
@@ -43,6 +44,25 @@ export class SchoolAdminController {
     @ApiOperation({ summary: 'Thống kê số lượt quét và sinh viên theo từng gian hàng' })
     @Get('booth-stats')
     getBoothStats() { return this.schoolAdminService.getBoothStats(); }
+
+    @ApiOperation({ summary: 'Danh sách tất cả workshop kèm trạng thái tài khoản' })
+    @Get('workshops')
+    getWorkshops() { return this.schoolAdminService.getWorkshops(); }
+
+    @ApiOperation({ summary: 'Chi tiết thống kê của một workshop' })
+    @Get('workshops/:boothId')
+    getWorkshopDetail(@Param('boothId', ParseUUIDPipe) boothId: string) {
+        return this.schoolAdminService.getWorkshopDetail(boothId);
+    }
+
+    @ApiOperation({ summary: 'Tạo tài khoản cho workshop' })
+    @Post('workshops/:boothId/account')
+    createWorkshopAccount(
+        @Param('boothId', ParseUUIDPipe) boothId: string,
+        @Body() dto: CreateWorkshopAccountDto,
+    ) {
+        return this.schoolAdminService.createWorkshopAccount(boothId, dto);
+    }
 
     @ApiOperation({ summary: 'Danh sách giải thưởng kèm sinh viên đủ điều kiện' })
     @Get('prizes')

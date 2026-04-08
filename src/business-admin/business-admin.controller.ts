@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, Request, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Request, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -6,6 +6,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { BusinessAdminService } from './business-admin.service';
+import { CreateWorkshopAttendanceDto } from './dto/workshop-attendance.dto';
 
 type AuthenticatedBusinessAdminUser = {
     id: string;
@@ -112,5 +113,47 @@ export class BusinessAdminController {
             `attachment; filename="${result.fileName}"`,
         );
         res.status(200).send(`\uFEFF${result.xml}`);
+    }
+
+    @ApiOperation({
+        summary: 'Thêm thủ công một sinh viên vào danh sách điểm danh hội thảo',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn thao tác trên một hội thảo cụ thể',
+    })
+    @Post('workshop-attendance/manual')
+    createWorkshopAttendanceManual(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Body() dto: CreateWorkshopAttendanceDto,
+    ) {
+        return this.businessAdminService.createWorkshopAttendanceManual(
+            req.user,
+            dto,
+            boothId,
+        );
+    }
+
+    @ApiOperation({
+        summary: 'Xoá một sinh viên khỏi danh sách điểm danh hội thảo',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn thao tác trên một hội thảo cụ thể',
+    })
+    @Delete('workshop-attendance/:studentCode')
+    deleteWorkshopAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Param('studentCode') studentCode: string,
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.deleteWorkshopAttendance(
+            req.user,
+            studentCode,
+            boothId,
+        );
     }
 }

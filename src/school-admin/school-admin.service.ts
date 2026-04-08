@@ -1,10 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import { Booth, BoothType } from '../entities/booth.entity';
+import { Business } from '../entities/business.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
+import { User, UserRole } from '../entities/user.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
+import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
 
 @Injectable()
 export class SchoolAdminService {
@@ -15,6 +19,10 @@ export class SchoolAdminService {
     private readonly studentRepo: Repository<Student>,
     @InjectRepository(Booth)
     private readonly boothRepo: Repository<Booth>,
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
 
   // GET /school-admin/dashboard
@@ -84,6 +92,8 @@ export class SchoolAdminService {
       booths: booths.slice(0, 20).map((b) => ({
         id: b.id,
         name: b.name,
+        displayName:
+          b.type === BoothType.WORKSHOP ? b.business?.name ?? b.name : b.name,
         business: b.business?.name,
         location: b.location,
         capacity: b.capacity,
@@ -99,6 +109,10 @@ export class SchoolAdminService {
         booth: {
           id: c.booth?.id,
           name: c.booth?.name,
+          displayName:
+            c.booth?.type === BoothType.WORKSHOP
+              ? c.booth?.business?.name ?? c.booth?.name
+              : c.booth?.name,
           business: c.booth?.business?.name,
           type: c.booth?.type ?? BoothType.BOOTH,
         },
@@ -118,16 +132,6 @@ export class SchoolAdminService {
       .groupBy("DATE_PART('hour', c.checkInTime)")
       .orderBy('hour')
       .getRawMany<{ hour: string; count: string }>();
-
-    // Major distribution
-    const majorDist = await this.studentRepo
-      .createQueryBuilder('s')
-      .select('s.major', 'major')
-      .addSelect('COUNT(*)', 'count')
-      .where('s.major IS NOT NULL')
-      .groupBy('s.major')
-      .orderBy('count', 'DESC')
-      .getRawMany<{ major: string; count: string }>();
 
     // Year distribution
     const yearDist = await this.studentRepo
@@ -177,10 +181,6 @@ export class SchoolAdminService {
         hour: parseInt(h.hour),
         count: parseInt(h.count),
       })),
-      majorDistribution: majorDist.map((m) => ({
-        major: m.major,
-        count: parseInt(m.count),
-      })),
       yearDistribution: yearDist.map((y) => ({
         year: parseInt(y.year),
         count: parseInt(y.count),
@@ -217,7 +217,6 @@ export class SchoolAdminService {
         fullName: s.fullName,
         email: s.email,
         phone: s.phone,
-        major: s.major,
         department: (s as any).department ?? null,
         className: (s as any).className ?? null,
         year: s.year,
@@ -249,7 +248,6 @@ export class SchoolAdminService {
           id: c.student?.id,
           studentCode: c.student?.studentCode,
           fullName: c.student?.fullName,
-          major: c.student?.major,
           department: (c.student as any)?.department ?? null,
           className: (c.student as any)?.className ?? null,
           year: c.student?.year,
@@ -257,6 +255,10 @@ export class SchoolAdminService {
         booth: {
           id: c.booth?.id,
           name: c.booth?.name,
+          displayName:
+            c.booth?.type === BoothType.WORKSHOP
+              ? c.booth?.business?.name ?? c.booth?.name
+              : c.booth?.name,
           business: c.booth?.business?.name ?? null,
           type: c.booth?.type ?? BoothType.BOOTH,
         },
@@ -302,6 +304,8 @@ export class SchoolAdminService {
       return {
         id: b.id,
         name: b.name,
+        displayName:
+          b.type === BoothType.WORKSHOP ? b.business?.name ?? b.name : b.name,
         business: b.business?.name ?? b.name,
         location: b.location,
         type: b.type,
@@ -309,6 +313,204 @@ export class SchoolAdminService {
         uniqueStudents: parseInt(s?.uniqueStudents ?? '0'),
       };
     });
+  }
+
+  // GET /school-admin/workshops
+  async getWorkshops() {
+    const workshops = await this.boothRepo.find({
+      where: { type: BoothType.WORKSHOP },
+      relations: ['business'],
+      order: { createdAt: 'ASC' },
+    });
+
+    const workshopIds = workshops.map((workshop) => workshop.id);
+    const accountMap = new Map<string, User>();
+    if (workshopIds.length > 0) {
+      const accounts = await this.userRepo.find({
+        where: workshopIds.map((id) => ({ boothId: id })),
+        order: { createdAt: 'ASC' },
+      });
+      for (const account of accounts) {
+        if (account.boothId && !accountMap.has(account.boothId)) {
+          accountMap.set(account.boothId, account);
+        }
+      }
+    }
+
+    const stats = await this.checkinRepo
+      .createQueryBuilder('c')
+      .select('c.boothId', 'boothId')
+      .addSelect('COUNT(*)', 'totalScans')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
+      .where('c.boothId IN (:...ids)', { ids: workshopIds.length ? workshopIds : ['00000000-0000-0000-0000-000000000000'] })
+      .groupBy('c.boothId')
+      .getRawMany<{
+        boothId: string;
+        totalScans: string;
+        uniqueStudents: string;
+      }>();
+    const statsMap = new Map(stats.map((item) => [item.boothId, item]));
+
+    return workshops.map((workshop) => {
+      const account = accountMap.get(workshop.id);
+      const workshopStats = statsMap.get(workshop.id);
+      return {
+        id: workshop.id,
+        name: workshop.name,
+        displayName: workshop.business?.name ?? workshop.name,
+        location: workshop.location,
+        capacity: workshop.capacity,
+        qrCode: workshop.qrCode,
+        type: workshop.type,
+        totalScans: parseInt(workshopStats?.totalScans ?? '0'),
+        uniqueStudents: parseInt(workshopStats?.uniqueStudents ?? '0'),
+        account: account
+          ? {
+              id: account.id,
+              email: account.email,
+              name: account.name,
+              isActive: account.isActive,
+              createdAt: account.createdAt,
+            }
+          : null,
+        hasAccount: !!account,
+      };
+    });
+  }
+
+  // GET /school-admin/workshops/:boothId
+  async getWorkshopDetail(boothId: string) {
+    const booth = await this.boothRepo.findOne({
+      where: { id: boothId, type: BoothType.WORKSHOP },
+      relations: ['business'],
+    });
+    if (!booth) throw new NotFoundException('Workshop không tồn tại');
+
+    const account = await this.userRepo.findOne({ where: { boothId } });
+
+    const [totalScans, uniqueResult, recentCheckins, departmentDistribution] =
+      await Promise.all([
+        this.checkinRepo.count({ where: { boothId } }),
+        this.checkinRepo
+          .createQueryBuilder('c')
+          .select('COUNT(DISTINCT c.studentId)', 'count')
+          .where('c.boothId = :boothId', { boothId })
+          .getRawOne<{ count: string }>(),
+        this.checkinRepo.find({
+          where: { boothId },
+          relations: ['student'],
+          order: { checkInTime: 'DESC' },
+          take: 10,
+        }),
+        this.checkinRepo
+          .createQueryBuilder('c')
+          .leftJoin('c.student', 's')
+          .select('s.department', 'department')
+          .addSelect('COUNT(*)', 'count')
+          .where('c.boothId = :boothId AND s.department IS NOT NULL', {
+            boothId,
+          })
+          .groupBy('s.department')
+          .orderBy('count', 'DESC')
+          .getRawMany<{ department: string; count: string }>(),
+      ]);
+
+    return {
+      workshop: {
+        id: booth.id,
+        name: booth.name,
+        displayName: booth.business?.name ?? booth.name,
+        businessId: booth.businessId,
+        business: booth.business?.name ?? booth.name,
+        location: booth.location,
+        capacity: booth.capacity,
+        qrCode: booth.qrCode,
+        type: booth.type,
+      },
+      account: account
+        ? {
+            id: account.id,
+            email: account.email,
+            name: account.name,
+            isActive: account.isActive,
+            createdAt: account.createdAt,
+          }
+        : null,
+      stats: {
+        totalScans,
+        uniqueStudents: parseInt(uniqueResult?.count ?? '0'),
+      },
+      departmentDistribution: departmentDistribution.map((item) => ({
+        department: item.department,
+        count: parseInt(item.count),
+      })),
+      recentCheckins: recentCheckins.map((checkin) => ({
+        id: checkin.id,
+        checkInTime: checkin.checkInTime,
+        student: {
+          id: checkin.student?.id,
+          fullName: checkin.student?.fullName,
+          studentCode: checkin.student?.studentCode,
+          className: checkin.student?.className ?? null,
+          department: checkin.student?.department ?? null,
+          phone: checkin.student?.phone ?? null,
+        },
+      })),
+    };
+  }
+
+  // POST /school-admin/workshops/:boothId/account
+  async createWorkshopAccount(
+    boothId: string,
+    dto: CreateWorkshopAccountDto,
+  ) {
+    const workshop = await this.boothRepo.findOne({
+      where: { id: boothId, type: BoothType.WORKSHOP },
+      relations: ['business'],
+    });
+    if (!workshop) throw new NotFoundException('Workshop không tồn tại');
+
+    const existingForWorkshop = await this.userRepo.findOne({ where: { boothId } });
+    if (existingForWorkshop) {
+      throw new BadRequestException('Workshop này đã có tài khoản');
+    }
+
+    const existingEmail = await this.userRepo.findOne({
+      where: { email: dto.email.trim() },
+    });
+    if (existingEmail) {
+      throw new BadRequestException('Email đã được sử dụng');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const user = await this.userRepo.save(
+      this.userRepo.create({
+        email: dto.email.trim(),
+        passwordHash,
+        name: dto.name?.trim() || workshop.business?.name || workshop.name,
+        role: UserRole.BUSINESS_ADMIN,
+        isActive: true,
+        boothId: workshop.id,
+      }),
+    );
+
+    return {
+      message: 'Đã tạo tài khoản cho workshop',
+      workshop: {
+        id: workshop.id,
+        name: workshop.name,
+        displayName: workshop.business?.name ?? workshop.name,
+        type: workshop.type,
+      },
+      account: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isActive: user.isActive,
+        boothId: user.boothId,
+      },
+    };
   }
 
   // GET /school-admin/prizes

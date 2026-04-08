@@ -210,9 +210,9 @@ export class ScannerService {
           fullName: c.student?.fullName,
           email: c.student?.email,
           phone: c.student?.phone,
-          major: c.student?.major,
           department: c.student?.department,
           className: c.student?.className,
+          year: c.student?.year ?? this.deriveYearFromStudentCode(c.student?.studentCode ?? ''),
         },
         boothType: c.booth?.type ?? BoothType.BOOTH,
       })),
@@ -260,6 +260,8 @@ export class ScannerService {
       email: dto.email ?? null,
       phone: dto.phone ?? null,
       className: dto.lop,
+      major: null,
+      year: this.deriveYearFromStudentCode(dto.ma_so_sinh_vien),
     };
 
     if (dto.khoa !== undefined) {
@@ -332,11 +334,23 @@ export class ScannerService {
       studentCode: student.studentCode,
       fullName: student.fullName,
       email: student.email,
-      major: student.major,
       department: student.department,
       className: student.className,
-      year: student.year,
+      year: student.year ?? this.deriveYearFromStudentCode(student.studentCode),
       school: student.school?.name,
     };
+  }
+
+  private deriveYearFromStudentCode(studentCode: string) {
+    const prefix = studentCode.trim().slice(0, 5);
+    const yearMap: Record<string, number> = {
+      '10221': 5,
+      '10222': 4,
+      '10223': 3,
+      '10224': 2,
+      '10225': 1,
+    };
+
+    return yearMap[prefix] ?? null;
   }
 }

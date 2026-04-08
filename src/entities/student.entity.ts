@@ -32,19 +32,19 @@ export class Student {
     phone: string | null;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    major: string;
+    major: string | null;
 
     @Column({ type: 'varchar', length: 100, nullable: true })
-    department: string; // Khoa
+    department: string | null; // Khoa
 
     @Column({ name: 'class_name', type: 'varchar', length: 50, nullable: true })
-    className: string; // Lớp (e.g. 23DT3)
+    className: string | null; // Lớp (e.g. 23DT3)
 
     @Column({ type: 'int', nullable: true })
-    year: number; // 1–4
+    year: number | null; // 1–5
 
     @Column({ type: 'float', nullable: true })
-    gpa: number;
+    gpa: number | null;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
