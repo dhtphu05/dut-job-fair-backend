@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Booth } from '../entities/booth.entity';
+import { Booth, BoothType } from '../entities/booth.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
@@ -19,11 +19,16 @@ export class SchoolAdminService {
 
   // GET /school-admin/dashboard
   async getDashboard() {
-    const [totalStudents, totalCheckins, totalBooths] = await Promise.all([
+    const [totalStudents, totalCheckins, booths] = await Promise.all([
       this.studentRepo.count(),
       this.checkinRepo.count(),
-      this.boothRepo.count(),
+      this.boothRepo.find({ relations: ['business'] }),
     ]);
+
+    const totalBooths = booths.filter((b) => b.type === BoothType.BOOTH).length;
+    const totalWorkshops = booths.filter(
+      (b) => b.type === BoothType.WORKSHOP,
+    ).length;
 
     const uniqueCheckinsResult = await this.checkinRepo
       .createQueryBuilder('c')
@@ -36,10 +41,36 @@ export class SchoolAdminService {
       take: 10,
     });
 
-    const booths = await this.boothRepo.find({
-      relations: ['business'],
-      take: 20,
-    });
+    const groupedByType = await this.checkinRepo
+      .createQueryBuilder('c')
+      .leftJoin('c.booth', 'booth')
+      .select('booth.type', 'type')
+      .addSelect('COUNT(*)', 'totalCheckins')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueVisitors')
+      .groupBy('booth.type')
+      .getRawMany<{
+        type: BoothType;
+        totalCheckins: string;
+        uniqueVisitors: string;
+      }>();
+
+    const byTypeStats = {
+      booth: { totalUnits: totalBooths, totalCheckins: 0, uniqueVisitors: 0 },
+      workshop: {
+        totalUnits: totalWorkshops,
+        totalCheckins: 0,
+        uniqueVisitors: 0,
+      },
+    };
+
+    for (const row of groupedByType) {
+      const key = row.type === BoothType.WORKSHOP ? 'workshop' : 'booth';
+      byTypeStats[key] = {
+        ...byTypeStats[key],
+        totalCheckins: parseInt(row.totalCheckins),
+        uniqueVisitors: parseInt(row.uniqueVisitors),
+      };
+    }
 
     return {
       stats: {
@@ -47,13 +78,16 @@ export class SchoolAdminService {
         totalCheckins,
         uniqueVisitors: parseInt(uniqueCheckinsResult?.count ?? '0'),
         totalBooths,
+        totalWorkshops,
+        byType: byTypeStats,
       },
-      booths: booths.map((b) => ({
+      booths: booths.slice(0, 20).map((b) => ({
         id: b.id,
         name: b.name,
         business: b.business?.name,
         location: b.location,
         capacity: b.capacity,
+        type: b.type,
       })),
       recentScans: recentScans.map((c) => ({
         id: c.id,
@@ -66,6 +100,7 @@ export class SchoolAdminService {
           id: c.booth?.id,
           name: c.booth?.name,
           business: c.booth?.business?.name,
+          type: c.booth?.type ?? BoothType.BOOTH,
         },
         checkInTime: c.checkInTime,
         status: c.status,
@@ -124,6 +159,19 @@ export class SchoolAdminService {
       .orderBy('date')
       .getRawMany<{ date: string; count: string; uniqueStudents: string }>();
 
+    const checkinTypeDistribution = await this.checkinRepo
+      .createQueryBuilder('c')
+      .leftJoin('c.booth', 'booth')
+      .select('booth.type', 'type')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
+      .groupBy('booth.type')
+      .getRawMany<{
+        type: BoothType;
+        count: string;
+        uniqueStudents: string;
+      }>();
+
     return {
       hourlyDistribution: hourly.map((h) => ({
         hour: parseInt(h.hour),
@@ -145,6 +193,11 @@ export class SchoolAdminService {
         date: d.date,
         count: parseInt(d.count),
         uniqueStudents: parseInt(d.uniqueStudents),
+      })),
+      checkinTypeDistribution: checkinTypeDistribution.map((item) => ({
+        type: item.type ?? BoothType.BOOTH,
+        count: parseInt(item.count),
+        uniqueStudents: parseInt(item.uniqueStudents),
       })),
     };
   }
@@ -205,6 +258,7 @@ export class SchoolAdminService {
           id: c.booth?.id,
           name: c.booth?.name,
           business: c.booth?.business?.name ?? null,
+          type: c.booth?.type ?? BoothType.BOOTH,
         },
       })),
       total,
@@ -250,6 +304,7 @@ export class SchoolAdminService {
         name: b.name,
         business: b.business?.name ?? b.name,
         location: b.location,
+        type: b.type,
         totalScans: parseInt(s?.totalScans ?? '0'),
         uniqueStudents: parseInt(s?.uniqueStudents ?? '0'),
       };

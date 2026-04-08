@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BusinessesService } from './businesses.service';
 import { CreateBusinessDto, UpdateBusinessDto } from './dto/business.dto';
+import { BusinessType } from '../entities/business.entity';
 
 @ApiTags('businesses')
 @ApiBearerAuth('access-token')
@@ -13,8 +14,9 @@ export class BusinessesController {
 
     @ApiOperation({ summary: 'Danh sách doanh nghiệp (phân trang)' })
     @ApiQuery({ name: 'page', required: false }) @ApiQuery({ name: 'pageSize', required: false })
-    @Get() findAll(@Query('page') p?: string, @Query('pageSize') ps?: string) {
-        return this.businessesService.findAll(p ? +p : 1, ps ? +ps : 20);
+    @ApiQuery({ name: 'type', required: false, enum: BusinessType })
+    @Get() findAll(@Query('page') p?: string, @Query('pageSize') ps?: string, @Query('type') type?: BusinessType) {
+        return this.businessesService.findAll(p ? +p : 1, ps ? +ps : 20, type);
     }
 
     @ApiOperation({ summary: 'Chi tiết doanh nghiệp' })

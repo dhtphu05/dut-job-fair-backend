@@ -1,15 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Business } from '../entities/business.entity';
+import { Business, BusinessType } from '../entities/business.entity';
 import { CreateBusinessDto, UpdateBusinessDto } from './dto/business.dto';
 
 @Injectable()
 export class BusinessesService {
     constructor(@InjectRepository(Business) private readonly repo: Repository<Business>) { }
 
-    findAll(page = 1, pageSize = 20) {
-        return this.repo.find({ order: { name: 'ASC' }, skip: (page - 1) * pageSize, take: pageSize });
+    findAll(page = 1, pageSize = 20, type?: BusinessType) {
+        const where = type ? { type } : {};
+        return this.repo.find({ where, order: { name: 'ASC' }, skip: (page - 1) * pageSize, take: pageSize });
     }
 
     async findOne(id: string) {

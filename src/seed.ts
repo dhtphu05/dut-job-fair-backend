@@ -3,8 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppModule } from './app.module';
-import { Booth } from './entities/booth.entity';
-import { Business } from './entities/business.entity';
+import { Booth, BoothType } from './entities/booth.entity';
+import { Business, BusinessType } from './entities/business.entity';
 import { Checkin } from './entities/checkin.entity';
 import { RewardClaim } from './entities/reward-claim.entity';
 import { RewardMilestone } from './entities/reward-milestone.entity';
@@ -16,6 +16,7 @@ import {
   DEMO_EVENT_END,
   DEMO_EVENT_START,
   SEED_COMPANIES,
+  SEED_WORKSHOPS,
 } from './seed-data/companies';
 
 const FORCED_STUDENT_CODE = '102280313';
@@ -250,6 +251,86 @@ async function bootstrap() {
       }
     }
 
+    console.log('\n[3.1] Seeding workshops and workshop admins...');
+    for (const workshop of SEED_WORKSHOPS) {
+      let business = await businessRepo.findOne({ where: { name: workshop.name } });
+      if (!business) {
+        business = await businessRepo.save(
+          businessRepo.create({
+            name: workshop.name,
+            publicId: workshop.publicId,
+            logoUrl: workshop.logoUrl || null,
+            description: `Hội thảo chuyên đề tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
+            type: BusinessType.WORKSHOP,
+          }),
+        );
+        console.log(`  + Workshop business: ${workshop.name}`);
+      } else {
+        await businessRepo.update(business.id, {
+          name: workshop.name,
+          publicId: workshop.publicId,
+          logoUrl: workshop.logoUrl || null,
+          description: `Hội thảo chuyên đề tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
+          type: BusinessType.WORKSHOP,
+        });
+        console.log(`  = Workshop business updated: ${workshop.name}`);
+      }
+
+      let booth = await boothRepo.findOne({ where: { businessId: business.id } });
+      if (!booth) {
+        booth = await boothRepo.save(
+          boothRepo.create({
+            name: workshop.boothName,
+            location: workshop.location,
+            capacity: workshop.capacity,
+            businessId: business.id,
+            qrCode: workshop.qrCode,
+            type: BoothType.WORKSHOP,
+          }),
+        );
+        console.log(`    + Workshop booth: ${booth.name}`);
+      } else {
+        await boothRepo.update(booth.id, {
+          name: workshop.boothName,
+          location: workshop.location,
+          capacity: workshop.capacity,
+          qrCode: workshop.qrCode,
+          type: BoothType.WORKSHOP,
+        });
+        booth = await boothRepo.findOneOrFail({ where: { id: booth.id } });
+        console.log(`    = Workshop booth updated: ${booth.name}`);
+      }
+      boothIds.push(booth.id);
+
+      const adminByEmail = await userRepo.findOne({ where: { email: workshop.email } });
+      const adminByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
+      const admin = adminByBooth ?? adminByEmail;
+
+      if (!admin) {
+        await userRepo.save(
+          userRepo.create({
+            email: workshop.email,
+            name: workshop.name,
+            role: UserRole.BUSINESS_ADMIN,
+            passwordHash,
+            boothId: booth.id,
+            isActive: true,
+          }),
+        );
+        console.log(`    + Workshop admin: ${workshop.email}`);
+      } else {
+        await userRepo.update(admin.id, {
+          email: workshop.email,
+          name: workshop.name,
+          role: UserRole.BUSINESS_ADMIN,
+          passwordHash,
+          boothId: booth.id,
+          isActive: true,
+        });
+        console.log(`    = Workshop admin reset: ${workshop.email}`);
+      }
+    }
+
     console.log('\n[4] Seeding reward milestones...');
     await rewardClaimRepo.createQueryBuilder().delete().execute();
     await rewardMilestoneRepo.createQueryBuilder().delete().execute();
@@ -428,6 +509,7 @@ async function bootstrap() {
     console.log('  System admin          : system@example.com');
     console.log('  Scanner               : scanner@example.com');
     console.log(`  Businesses seeded     : ${SEED_COMPANIES.length}`);
+    console.log(`  Workshops seeded      : ${SEED_WORKSHOPS.length}`);
     console.log(`  Students seeded       : ${studentIds.length}`);
     console.log(`  Checkin records       : ${totalCheckins}`);
     console.log(`  Forced student booths : ${FORCED_STUDENT_CODE} => ${finalForcedBoothCount?.count ?? '0'} booths`);

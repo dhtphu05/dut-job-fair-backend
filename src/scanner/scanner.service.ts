@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
-import { Booth } from '../entities/booth.entity';
+import { Booth, BoothType } from '../entities/booth.entity';
 import { QrScanDto, ScanDto } from './dto/scan.dto';
 import { UserRole } from '../entities/user.entity';
 
@@ -75,6 +75,7 @@ export class ScannerService {
       scanId: checkin.record.id,
       visitor: this.formatVisitor(student),
       booth: { id: booth.id, name: booth.name, business: booth.businessName },
+      boothType: booth.type ?? BoothType.BOOTH,
     };
   }
 
@@ -114,6 +115,7 @@ export class ScannerService {
       scanId: checkin.record.id,
       visitor: this.formatVisitor(student),
       booth: { id: booth.id, name: booth.name, business: booth.businessName },
+      boothType: booth.type ?? BoothType.BOOTH,
     };
   }
 
@@ -136,7 +138,7 @@ export class ScannerService {
     const allowedBoothId = this.ensureBoothAccess(boothId, user);
     const [checkins, total] = await this.checkinRepo.findAndCount({
       where: { boothId: allowedBoothId },
-      relations: ['student', 'student.school'],
+      relations: ['student', 'student.school', 'booth'],
       order: { checkInTime: 'DESC' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -149,6 +151,7 @@ export class ScannerService {
         checkInTime: c.checkInTime,
         status: c.status,
         durationMinutes: c.durationMinutes,
+        boothType: c.booth?.type ?? BoothType.BOOTH,
       })),
       total,
       page,
@@ -166,7 +169,7 @@ export class ScannerService {
     const allowedBoothId = this.ensureBoothAccess(boothId, user);
     const checkins = await this.checkinRepo.find({
       where: { boothId: allowedBoothId },
-      relations: ['student'],
+      relations: ['student', 'booth'],
       order: { checkInTime: 'DESC' },
       take: limit,
     });
@@ -176,6 +179,7 @@ export class ScannerService {
       visitor: this.formatVisitor(c.student),
       checkInTime: c.checkInTime,
       status: c.status,
+      boothType: c.booth?.type ?? BoothType.BOOTH,
     }));
   }
 
@@ -189,7 +193,7 @@ export class ScannerService {
     const allowedBoothId = this.ensureBoothAccess(boothId, user);
     const [checkins, total] = await this.checkinRepo.findAndCount({
       where: { boothId: allowedBoothId },
-      relations: ['student'],
+      relations: ['student', 'booth'],
       order: { checkInTime: 'DESC' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -210,6 +214,7 @@ export class ScannerService {
           department: c.student?.department,
           className: c.student?.className,
         },
+        boothType: c.booth?.type ?? BoothType.BOOTH,
       })),
       total,
       page,
@@ -241,10 +246,11 @@ export class ScannerService {
       .select([
         'booth.id AS id',
         'booth.name AS name',
+        'booth.type AS type',
         'business.name AS "businessName"',
       ])
       .where('booth.id = :boothId', { boothId })
-      .getRawOne<{ id: string; name: string; businessName: string | null }>();
+      .getRawOne<{ id: string; name: string; type: BoothType; businessName: string | null }>();
   }
 
   private async upsertStudentFromQr(dto: QrScanDto) {

@@ -1,16 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Booth } from '../entities/booth.entity';
+import { Booth, BoothType } from '../entities/booth.entity';
 import { CreateBoothDto, UpdateBoothDto } from './dto/booth.dto';
-import crypto from 'crypto';
 
 @Injectable()
 export class BoothsService {
     constructor(@InjectRepository(Booth) private readonly repo: Repository<Booth>) { }
 
-    findAll(businessId?: string) {
-        const where = businessId ? { businessId } : {};
+    findAll(businessId?: string, type?: BoothType) {
+        const where = {
+            ...(businessId ? { businessId } : {}),
+            ...(type ? { type } : {}),
+        };
         return this.repo.find({ where, relations: ['business'], order: { createdAt: 'ASC' } });
     }
 

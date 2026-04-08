@@ -1,10 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 import { UserRole } from '../../entities/user.entity';
+import { BusinessType } from '../../entities/business.entity';
 
 export class LoginDto {
-    @ApiProperty({ example: 'admin@dut.edu.vn', description: 'Email đăng nhập' })
-    @IsEmail({}, { message: 'Email không hợp lệ' })
+    @ApiProperty({
+        example: 'anna@jobfair',
+        description: 'Định danh đăng nhập được lưu trong trường email',
+    })
+    @IsString()
+    @IsNotEmpty()
     email: string;
 
     @ApiProperty({ example: 'secret123', minLength: 6 })
@@ -34,7 +39,7 @@ export class RegisterDto {
     @IsOptional()
     role?: UserRole;
 
-    @ApiPropertyOptional({ description: 'UUID doanh nghiệp – bắt buộc với business_admin' })
+    @ApiPropertyOptional({ description: 'UUID đơn vị – bắt buộc với business_admin (doanh nghiệp hoặc workshop)' })
     @IsOptional()
     @IsUUID()
     businessId?: string;
@@ -55,4 +60,5 @@ export class AuthResponseDto {
     @ApiProperty() accessToken: string;
     @ApiProperty() refreshToken: string;
     @ApiPropertyOptional() boothId?: string | null;
+    @ApiPropertyOptional({ enum: BusinessType }) businessType?: BusinessType | null;
 }

@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { BusinessType } from '../../entities/business.entity';
 
 export class CreateBusinessDto {
     @ApiProperty({ example: 'FPT Software' })
@@ -19,6 +20,9 @@ export class CreateBusinessDto {
 
     @ApiPropertyOptional({ example: 'Công ty phần mềm hàng đầu Việt Nam' })
     @IsString() @IsOptional() description?: string;
+
+    @ApiPropertyOptional({ enum: BusinessType, default: BusinessType.BOOTH })
+    @IsEnum(BusinessType) @IsOptional() type?: BusinessType;
 }
 
 export class UpdateBusinessDto {
@@ -28,4 +32,6 @@ export class UpdateBusinessDto {
     @ApiPropertyOptional() @IsString() @IsOptional() industry?: string;
     @ApiPropertyOptional() @IsString() @IsOptional() website?: string;
     @ApiPropertyOptional() @IsString() @IsOptional() description?: string;
+    @ApiPropertyOptional({ enum: BusinessType })
+    @IsEnum(BusinessType) @IsOptional() type?: BusinessType;
 }

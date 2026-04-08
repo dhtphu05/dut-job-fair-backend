@@ -5,6 +5,17 @@ export type SeedCompany = {
   logoUrl: string;
 };
 
+export type SeedWorkshop = {
+  name: string;
+  email: string;
+  publicId: string;
+  logoUrl: string;
+  boothName: string;
+  location: string;
+  capacity: number;
+  qrCode: string;
+};
+
 export const SEED_COMPANIES: SeedCompany[] = [
   { name: 'Công ty Cổ phần Tập đoàn Trường Hải (THACO)', email: 'thaco@jobfair', publicId: 'thaco_b8ce45', logoUrl: 'https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/thaco_b8ce45.png' },
   { name: 'Công ty CP XD Kiến trúc Tân Minh Nhân', email: 'tanminhnhan@jobfair', publicId: '2.Tan_Minh_Nhan_r1mhz5', logoUrl: 'https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/2.Tan_Minh_Nhan_r1mhz5.png' },
@@ -48,6 +59,19 @@ export const SEED_COMPANIES: SeedCompany[] = [
   { name: 'Pegatron Việt Nam', email: 'pegatron@jobfair', publicId: 'pegatron_mvlfmw', logoUrl: 'https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/pegatron_mvlfmw.png' },
   { name: 'Kính mắt Anna', email: 'anna@jobfair', publicId: 'anna_cvdne5', logoUrl: 'https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/anna_cvdne5.png' },
   { name: 'CellphoneS', email: 'cellphones@jobfair', publicId: 'cellphone_zhcytk', logoUrl: 'https://res.cloudinary.com/dy0f3mihf/image/upload/v1774939304/cellphone_zhcytk.png' },
+];
+
+export const SEED_WORKSHOPS: SeedWorkshop[] = [
+  {
+    name: 'Hội thảo Kỹ năng chuyên đề “CV Ấn tượng – Phỏng vấn tự tin”',
+    email: 'cv-workshop@jobfair',
+    publicId: 'workshop_cv_interview',
+    logoUrl: '',
+    boothName: 'Hội thảo CV Ấn tượng – Phỏng vấn tự tin',
+    location: 'Khu hội thảo - Phòng WS01',
+    capacity: 200,
+    qrCode: 'WORKSHOP-WS01',
+  },
 ];
 
 export const DEMO_EVENT_DATE = '2026-04-01';

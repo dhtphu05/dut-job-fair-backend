@@ -7,6 +7,11 @@ import {
 } from 'typeorm';
 import { Booth } from './booth.entity';
 
+export enum BusinessType {
+    BOOTH = 'booth',
+    WORKSHOP = 'workshop',
+}
+
 @Entity('businesses')
 export class Business {
     @PrimaryGeneratedColumn('uuid')
@@ -29,6 +34,13 @@ export class Business {
 
     @Column({ type: 'text', nullable: true })
     description: string;
+
+    @Column({
+        type: 'enum',
+        enum: BusinessType,
+        default: BusinessType.BOOTH,
+    })
+    type: BusinessType;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

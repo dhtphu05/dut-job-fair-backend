@@ -12,7 +12,7 @@ import { Repository } from 'typeorm';
 import { User, UserRole } from '../entities/user.entity';
 import { UserSession } from '../entities/user-session.entity';
 import { Booth } from '../entities/booth.entity';
-import { Business } from '../entities/business.entity';
+import { Business, BusinessType } from '../entities/business.entity';
 import { AuthResponseDto, LoginDto, RegisterDto } from './dto/auth.dto';
 import { ConfigService } from '@nestjs/config';
 
@@ -99,6 +99,7 @@ export class AuthService {
       publicId: string | null;
       logoUrl: string | null;
       industry: string;
+      type: BusinessType;
       registered: boolean;
     }[] = [];
 
@@ -113,6 +114,7 @@ export class AuthService {
         publicId: biz.publicId ?? null,
         logoUrl: biz.logoUrl ?? null,
         industry: biz.industry,
+        type: biz.type,
         registered,
       });
     }
@@ -214,7 +216,19 @@ export class AuthService {
       role: user.role,
       sid: session.id,
       boothId: user.boothId ?? null,
+      businessType: null,
     };
+
+    let businessType: BusinessType | null = null;
+    if (user.boothId) {
+      const booth = await this.boothRepo.findOne({ where: { id: user.boothId } });
+      if (booth) {
+        const business = await this.businessRepo.findOne({
+          where: { id: booth.businessId },
+        });
+        businessType = business?.type ?? null;
+      }
+    }
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -242,6 +256,7 @@ export class AuthService {
       accessToken,
       refreshToken,
       boothId: user.boothId,
+      businessType,
     };
   }
 }

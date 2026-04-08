@@ -10,6 +10,11 @@ import {
 import { Business } from './business.entity';
 import { Checkin } from './checkin.entity';
 
+export enum BoothType {
+    BOOTH = 'booth',
+    WORKSHOP = 'workshop',
+}
+
 @Entity('booths')
 export class Booth {
     @PrimaryGeneratedColumn('uuid')
@@ -29,6 +34,13 @@ export class Booth {
 
     @Column({ name: 'qr_code', length: 255, unique: true, nullable: true })
     qrCode: string;
+
+    @Column({
+        type: 'enum',
+        enum: BoothType,
+        default: BoothType.BOOTH,
+    })
+    type: BoothType;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

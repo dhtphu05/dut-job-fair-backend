@@ -1,10 +1,17 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query, Request, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { BusinessAdminService } from './business-admin.service';
+
+type AuthenticatedBusinessAdminUser = {
+    id: string;
+    role: UserRole;
+    boothId?: string | null;
+};
 
 @ApiTags('business-admin')
 @ApiBearerAuth('access-token')
@@ -37,5 +44,73 @@ export class BusinessAdminController {
         @Query('pageSize') ps?: string,
     ) {
         return this.businessAdminService.getVisitors(boothId, p ? +p : 1, ps ? +ps : 20);
+    }
+
+    @ApiOperation({
+        summary: 'Danh sách điểm danh dành riêng cho account workshop',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xem báo cáo của một workshop cụ thể',
+    })
+    @Get('workshop-attendance')
+    getWorkshopAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.getWorkshopAttendanceReport(req.user, boothId);
+    }
+
+    @ApiOperation({
+        summary: 'Xuất CSV điểm danh dành riêng cho account workshop',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xuất báo cáo của một workshop cụ thể',
+    })
+    @Get('workshop-attendance/export')
+    async exportWorkshopAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Res() res: Response,
+    ) {
+        const result = await this.businessAdminService.exportWorkshopAttendanceCsv(
+            req.user,
+            boothId,
+        );
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${result.fileName}"`,
+        );
+        res.status(200).send(`\uFEFF${result.csv}`);
+    }
+
+    @ApiOperation({
+        summary: 'Xuất Excel điểm danh dành riêng cho account workshop',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xuất báo cáo của một workshop cụ thể',
+    })
+    @Get('workshop-attendance/export/excel')
+    async exportWorkshopAttendanceExcel(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Res() res: Response,
+    ) {
+        const result = await this.businessAdminService.exportWorkshopAttendanceExcel(
+            req.user,
+            boothId,
+        );
+        res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${result.fileName}"`,
+        );
+        res.status(200).send(`\uFEFF${result.xml}`);
     }
 }

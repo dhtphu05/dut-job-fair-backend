@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { BoothsService } from './booths.service';
 import { CreateBoothDto, UpdateBoothDto } from './dto/booth.dto';
+import { BoothType } from '../entities/booth.entity';
 
 @ApiTags('booths')
 @ApiBearerAuth('access-token')
@@ -13,8 +14,9 @@ export class BoothsController {
 
     @ApiOperation({ summary: 'Danh sách gian hàng (lọc theo businessId)' })
     @ApiQuery({ name: 'businessId', required: false, description: 'Lọc theo UUID doanh nghiệp' })
-    @Get() findAll(@Query('businessId') businessId?: string) {
-        return this.boothsService.findAll(businessId);
+    @ApiQuery({ name: 'type', required: false, enum: BoothType })
+    @Get() findAll(@Query('businessId') businessId?: string, @Query('type') type?: BoothType) {
+        return this.boothsService.findAll(businessId, type);
     }
 
     @ApiOperation({ summary: 'Chi tiết gian hàng' })
