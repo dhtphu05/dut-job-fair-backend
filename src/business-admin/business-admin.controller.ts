@@ -64,6 +64,25 @@ export class BusinessAdminController {
     }
 
     @ApiOperation({
+        summary: 'Dữ liệu điểm danh hội thảo cho frontend tự xuất file',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn lấy dữ liệu của một hội thảo cụ thể',
+    })
+    @Get('workshop-attendance/export-data')
+    getWorkshopAttendanceExportData(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.getWorkshopAttendanceExportData(
+            req.user,
+            boothId,
+        );
+    }
+
+    @ApiOperation({
         summary: 'Xuất CSV điểm danh dành riêng cho account workshop',
     })
     @ApiQuery({

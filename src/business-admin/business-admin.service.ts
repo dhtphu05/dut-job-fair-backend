@@ -246,6 +246,47 @@ export class BusinessAdminService {
         };
     }
 
+    async getWorkshopAttendanceExportData(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
+        const rows = await this.getWorkshopAttendanceRows(booth.id);
+
+        return {
+            fileName: this.buildWorkshopAttendanceExcelFileName(booth.name),
+            sheetName: 'Điểm danh hội thảo',
+            workshop: {
+                id: booth.id,
+                name: booth.name,
+                displayName: booth.business?.name ?? booth.name,
+                location: booth.location,
+                type: booth.type,
+            },
+            columns: [
+                { key: 'stt', title: 'STT' },
+                { key: 'workshopName', title: 'Tên hội thảo' },
+                { key: 'fullName', title: 'Họ và tên' },
+                { key: 'studentCode', title: 'MSSV' },
+                { key: 'className', title: 'Lớp' },
+                { key: 'department', title: 'Khoa' },
+                { key: 'phone', title: 'SĐT' },
+                { key: 'checkInTime', title: 'Thời gian điểm danh' },
+            ],
+            rows: rows.map((row) => ({
+                stt: row.stt,
+                workshopName: row.workshopName,
+                fullName: row.fullName,
+                studentCode: row.studentCode,
+                className: row.className ?? '',
+                department: row.department ?? '',
+                phone: row.phone ?? '',
+                checkInTime: row.checkInTime,
+            })),
+            total: rows.length,
+        };
+    }
+
     async createWorkshopAttendanceManual(
         user: AuthenticatedBusinessAdminUser,
         dto: CreateWorkshopAttendanceDto,
