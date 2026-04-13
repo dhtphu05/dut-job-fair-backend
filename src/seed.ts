@@ -247,7 +247,8 @@ async function bootstrap() {
 
       const companyPassword = `jobfair${DEMO_EVENT_DATE.substring(0,4)}_${randomLetters(2)}`;
       const businessPasswordHash = await bcrypt.hash(companyPassword, 10);
-      credentials.push(`"${company.name}",${company.email},${companyPassword}`);
+      const safeCompanyName = company.name.replace(/"/g, "'");
+      credentials.push(`"${safeCompanyName}",${company.email},${companyPassword}`);
 
       const adminByEmail = await userRepo.findOne({ where: { email: company.email } });
       const adminByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
@@ -275,86 +276,6 @@ async function bootstrap() {
           isActive: true,
         });
         console.log(`    = Admin reset: ${company.email}`);
-      }
-    }
-
-    console.log('\n[3.1] Seeding workshops and workshop admins...');
-    for (const workshop of SEED_WORKSHOPS) {
-      let business = await businessRepo.findOne({ where: { name: workshop.name } });
-      if (!business) {
-        business = await businessRepo.save(
-          businessRepo.create({
-            name: workshop.name,
-            publicId: workshop.publicId,
-            logoUrl: workshop.logoUrl || null,
-            description: `Hội thảo chuyên đề tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
-            type: BusinessType.WORKSHOP,
-          }),
-        );
-        console.log(`  + Workshop business: ${workshop.name}`);
-      } else {
-        await businessRepo.update(business.id, {
-          name: workshop.name,
-          publicId: workshop.publicId,
-          logoUrl: workshop.logoUrl || null,
-          description: `Hội thảo chuyên đề tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
-          type: BusinessType.WORKSHOP,
-        });
-        console.log(`  = Workshop business updated: ${workshop.name}`);
-      }
-
-      let booth = await boothRepo.findOne({ where: { businessId: business.id } });
-      if (!booth) {
-        booth = await boothRepo.save(
-          boothRepo.create({
-            name: workshop.boothName,
-            location: workshop.location,
-            capacity: workshop.capacity,
-            businessId: business.id,
-            qrCode: workshop.qrCode,
-            type: BoothType.WORKSHOP,
-          }),
-        );
-        console.log(`    + Workshop booth: ${booth.name}`);
-      } else {
-        await boothRepo.update(booth.id, {
-          name: workshop.boothName,
-          location: workshop.location,
-          capacity: workshop.capacity,
-          qrCode: workshop.qrCode,
-          type: BoothType.WORKSHOP,
-        });
-        booth = await boothRepo.findOneOrFail({ where: { id: booth.id } });
-        console.log(`    = Workshop booth updated: ${booth.name}`);
-      }
-      boothIds.push(booth.id);
-
-      const adminByEmail = await userRepo.findOne({ where: { email: workshop.email } });
-      const adminByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
-      const admin = adminByBooth ?? adminByEmail;
-
-      if (!admin) {
-        await userRepo.save(
-          userRepo.create({
-            email: workshop.email,
-            name: workshop.name,
-            role: UserRole.BUSINESS_ADMIN,
-            passwordHash,
-            boothId: booth.id,
-            isActive: true,
-          }),
-        );
-        console.log(`    + Workshop admin: ${workshop.email}`);
-      } else {
-        await userRepo.update(admin.id, {
-          email: workshop.email,
-          name: workshop.name,
-          role: UserRole.BUSINESS_ADMIN,
-          passwordHash,
-          boothId: booth.id,
-          isActive: true,
-        });
-        console.log(`    = Workshop admin reset: ${workshop.email}`);
       }
     }
 
@@ -396,10 +317,8 @@ async function bootstrap() {
     console.log('  System admin          : system@example.com');
     console.log('  Scanner               : scanner@example.com');
     console.log(`  Businesses seeded     : ${SEED_COMPANIES.length}`);
-    console.log(`  Workshops seeded      : ${SEED_WORKSHOPS.length}`);
-    
     fs.writeFileSync('business_credentials.csv', '\uFEFF' + credentials.join('\n'), 'utf8');
-    console.log('\n  📁 Đã xuất danh sách mật khẩu ra file: business_credentials.csv');
+    console.log('\n  📁 Đã xuất danh sách mật khẩu Doanh nghiệp ra file: business_credentials.csv');
 
     console.log(`  Demo event date       : ${DEMO_EVENT_DATE} 08:00–17:00 (+07:00)`);
     console.log(`${'─'.repeat(55)}\n`);
