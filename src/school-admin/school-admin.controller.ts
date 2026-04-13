@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -6,6 +6,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { SchoolAdminService } from './school-admin.service';
 import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateBusinessAccountDto } from './dto/business-account.dto';
 
 @ApiTags('school-admin')
 @ApiBearerAuth('access-token')
@@ -67,4 +68,20 @@ export class SchoolAdminController {
     @ApiOperation({ summary: 'Danh sách giải thưởng kèm sinh viên đủ điều kiện' })
     @Get('prizes')
     getPrizes() { return this.schoolAdminService.getPrizes(); }
+
+    @ApiOperation({ summary: 'Danh sách các tài khoản doanh nghiệp' })
+    @Get('business-accounts')
+    getBusinessAccounts() { return this.schoolAdminService.getBusinessAccounts(); }
+
+    @ApiOperation({ summary: 'Tạo tài khoản doanh nghiệp (kèm tạo Business + Booth tự động)' })
+    @Post('business-accounts')
+    createBusinessAccount(@Body() dto: CreateBusinessAccountDto) {
+        return this.schoolAdminService.createBusinessAccount(dto);
+    }
+
+    @ApiOperation({ summary: 'Xoá tài khoản doanh nghiệp và toàn bộ dữ liệu đi kèm' })
+    @Delete('business-accounts/:userId')
+    deleteBusinessAccount(@Param('userId', ParseUUIDPipe) userId: string) {
+        return this.schoolAdminService.deleteBusinessAccount(userId);
+    }
 }

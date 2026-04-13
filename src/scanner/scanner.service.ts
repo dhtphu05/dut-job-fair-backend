@@ -62,7 +62,7 @@ export class ScannerService {
       return {
         success: false,
         status: 'duplicate',
-        message: 'Sinh viên đã check-in vào gian hàng này gần đây',
+        message: 'Sinh viên đã check-in thành công vào gian hàng này trước đó',
         scanId: checkin.record.id,
         visitor: this.formatVisitor(student),
       };
@@ -102,7 +102,7 @@ export class ScannerService {
       return {
         success: false,
         status: 'duplicate',
-        message: 'Sinh viên đã check-in vào gian hàng này gần đây',
+        message: 'Sinh viên đã check-in thành công vào gian hàng này trước đó',
         scanId: checkin.record.id,
         visitor: this.formatVisitor(student),
       };
@@ -294,18 +294,16 @@ export class ScannerService {
         [input.studentId, input.boothId],
       );
 
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const recent = await queryRunner.manager
+      const existing = await queryRunner.manager
         .createQueryBuilder(Checkin, 'c')
         .where('c.studentId = :sid', { sid: input.studentId })
         .andWhere('c.boothId = :bid', { bid: input.boothId })
-        .andWhere('c.checkInTime > :limit', { limit: fiveMinutesAgo })
         .orderBy('c.checkInTime', 'DESC')
         .getOne();
 
-      if (recent) {
+      if (existing) {
         await queryRunner.commitTransaction();
-        return { created: false, record: recent };
+        return { created: false, record: existing };
       }
 
       const saved = await queryRunner.manager.save(

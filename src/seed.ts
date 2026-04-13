@@ -1,4 +1,5 @@
 import * as bcrypt from 'bcryptjs';
+import * as fs from 'fs';
 import { NestFactory } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,6 +24,15 @@ const FORCED_STUDENT_CODE = '102280313';
 
 function randInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randomLetters(length: number): string {
+  const letters = 'abcdefghijklmnopqrstuvwxyz';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += letters.charAt(Math.floor(Math.random() * letters.length));
+  }
+  return result;
 }
 
 function pick<T>(arr: T[]): T {
@@ -117,6 +127,18 @@ async function bootstrap() {
 
   try {
     const userRepo = app.get<Repository<User>>(getRepositoryToken(User));
+    // Clear all old data for production, but PRESERVE WORKSHOP data!
+    console.log('\n[0] Xoá data rác (Bảo vệ dữ liệu Workshop)...');
+    await userRepo.manager.query(`
+      DELETE FROM checkins;
+      DELETE FROM students;
+      DELETE FROM reward_claims;
+      DELETE FROM reward_milestones;
+      DELETE FROM user_sessions;
+      DELETE FROM users WHERE role = 'business_admin' AND booth_id IN (SELECT id FROM booths WHERE type = 'booth');
+      DELETE FROM booths WHERE type = 'booth';
+      DELETE FROM businesses WHERE type = 'booth';
+    `);
     const businessRepo = app.get<Repository<Business>>(getRepositoryToken(Business));
     const boothRepo = app.get<Repository<Booth>>(getRepositoryToken(Booth));
     const studentRepo = app.get<Repository<Student>>(getRepositoryToken(Student));
@@ -129,7 +151,7 @@ async function bootstrap() {
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
     const baseUsers = [
-      { email: 'school@example.com', role: UserRole.SCHOOL_ADMIN, name: 'School Admin' },
+      { email: 'checkin@admin.com', role: UserRole.SCHOOL_ADMIN, name: 'School Admin' },
       { email: 'system@example.com', role: UserRole.SYSTEM_ADMIN, name: 'System Admin' },
       { email: 'scanner@example.com', role: UserRole.BOOTH_STAFF, name: 'Scanner User' },
     ];
@@ -173,6 +195,7 @@ async function bootstrap() {
 
     console.log('\n[3] Seeding businesses, booths, and business admins...');
     const boothIds: string[] = [];
+    const credentials: string[] = ['Doanh Nghiệp,Email (Tên đăng nhập),Mật Khẩu'];
 
     for (const [index, company] of SEED_COMPANIES.entries()) {
       const boothCode = buildBoothCode(index);
@@ -202,7 +225,7 @@ async function bootstrap() {
       if (!booth) {
         booth = await boothRepo.save(
           boothRepo.create({
-            name: `Gian hàng ${company.name}`,
+            name: company.name,
             location: `Khu doanh nghiệp - ${boothCode}`,
             capacity: 50,
             businessId: business.id,
@@ -212,7 +235,7 @@ async function bootstrap() {
         console.log(`    + Booth: ${booth.name}`);
       } else {
         await boothRepo.update(booth.id, {
-          name: `Gian hàng ${company.name}`,
+          name: company.name,
           location: `Khu doanh nghiệp - ${boothCode}`,
           capacity: 50,
           qrCode: `BOOTH-${boothCode}`,
@@ -221,6 +244,10 @@ async function bootstrap() {
         console.log(`    = Booth updated: ${booth.name}`);
       }
       boothIds.push(booth.id);
+
+      const companyPassword = `jobfair${DEMO_EVENT_DATE.substring(0,4)}_${randomLetters(2)}`;
+      const businessPasswordHash = await bcrypt.hash(companyPassword, 10);
+      credentials.push(`"${company.name}",${company.email},${companyPassword}`);
 
       const adminByEmail = await userRepo.findOne({ where: { email: company.email } });
       const adminByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
@@ -232,7 +259,7 @@ async function bootstrap() {
             email: company.email,
             name: company.name,
             role: UserRole.BUSINESS_ADMIN,
-            passwordHash,
+            passwordHash: businessPasswordHash,
             boothId: booth.id,
             isActive: true,
           }),
@@ -243,7 +270,7 @@ async function bootstrap() {
           email: company.email,
           name: company.name,
           role: UserRole.BUSINESS_ADMIN,
-          passwordHash,
+          passwordHash: businessPasswordHash,
           boothId: booth.id,
           isActive: true,
         });
@@ -359,160 +386,21 @@ async function bootstrap() {
     ]);
     console.log('  + Reward milestones reset for demo');
 
-    console.log('\n[5] Seeding students...');
-    const studentIds: string[] = [];
-    let studentSeq = 1;
-
-    for (const [department, meta] of Object.entries(DEPT_META)) {
-      for (let i = 0; i < meta.count; i++) {
-        const year = randInt(2, 4);
-        const studentCode = `DUT${String(studentSeq).padStart(6, '0')}`;
-        const fullName = randomName();
-        const className = pick(meta.classes);
-        const major = pick(meta.majors);
-        const emailSlug = fullName
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/đ/gi, 'd')
-          .replace(/[^a-z0-9]/gi, '')
-          .toLowerCase()
-          .slice(0, 12);
-        const email = `${emailSlug}${studentSeq}@sv.dut.edu.vn`;
-
-        const existing = await studentRepo.findOne({ where: { studentCode } });
-        if (!existing) {
-          const student = await studentRepo.save(
-            studentRepo.create({
-              studentCode,
-              fullName,
-              email,
-              major,
-              department,
-              className,
-              year,
-              gpa: parseFloat((randInt(250, 400) / 100).toFixed(2)),
-              schoolId: school.id,
-            }),
-          );
-          studentIds.push(student.id);
-        } else {
-          studentIds.push(existing.id);
-        }
-
-        studentSeq++;
-      }
-    }
-    console.log(`  + Students seeded/verified: ${studentIds.length}`);
-
-    let forcedStudent = await studentRepo.findOne({
-      where: { studentCode: FORCED_STUDENT_CODE },
-    });
-    if (!forcedStudent) {
-      forcedStudent = await studentRepo.save(
-        studentRepo.create({
-          studentCode: FORCED_STUDENT_CODE,
-          fullName: 'Sinh vien Demo 102280313',
-          email: '102280313@sv.dut.edu.vn',
-          phone: '0900000313',
-          major: 'Kỹ thuật phần mềm',
-          department: 'Công nghệ Thông tin',
-          className: '22TH1',
-          year: 4,
-          gpa: 3.4,
-          schoolId: school.id,
-        }),
-      );
-      studentIds.push(forcedStudent.id);
-      console.log(`  + Forced student created: ${FORCED_STUDENT_CODE}`);
-    } else {
-      await studentRepo.update(forcedStudent.id, {
-        fullName: 'Sinh vien Demo 102280313',
-        email: '102280313@sv.dut.edu.vn',
-        phone: '0900000313',
-        major: 'Kỹ thuật phần mềm',
-        department: 'Công nghệ Thông tin',
-        className: '22TH1',
-        year: 4,
-        gpa: 3.4,
-        schoolId: school.id,
-      });
-      if (!studentIds.includes(forcedStudent.id)) {
-        studentIds.push(forcedStudent.id);
-      }
-      console.log(`  = Forced student updated: ${FORCED_STUDENT_CODE}`);
-    }
-
-    console.log('\n[6] Resetting and seeding check-ins...');
-    await checkinRepo.createQueryBuilder().delete().execute();
-
-    let checkinCount = 0;
-    for (const studentId of studentIds) {
-      const numBooths = randInt(2, 8);
-      const selectedBooths = pickN(boothIds, numBooths);
-
-      for (const boothId of selectedBooths) {
-        const duration = randInt(8, 45);
-        const checkInTime = randomCheckinTime();
-        const checkin = await checkinRepo.save(
-          checkinRepo.create({
-            studentId,
-            boothId,
-            status: Math.random() < 0.88 ? 'completed' : 'active',
-            durationMinutes: duration,
-          }),
-        );
-
-        await checkinRepo.query(
-          'UPDATE checkins SET check_in_time = $1 WHERE id = $2',
-          [checkInTime, checkin.id],
-        );
-        checkinCount++;
-      }
-    }
-
-    const forcedStudentBooths = boothIds.slice(0, 7);
-    await checkinRepo
-      .createQueryBuilder()
-      .delete()
-      .where('student_id = :studentId', { studentId: forcedStudent.id })
-      .execute();
-
-    for (const boothId of forcedStudentBooths) {
-      const checkin = await checkinRepo.save(
-        checkinRepo.create({
-          studentId: forcedStudent.id,
-          boothId,
-          status: 'completed',
-          durationMinutes: 20,
-        }),
-      );
-      await checkinRepo.query(
-        'UPDATE checkins SET check_in_time = $1 WHERE id = $2',
-        [randomCheckinTime(), checkin.id],
-      );
-    }
-    console.log(`  + Forced student ${FORCED_STUDENT_CODE} reset to exactly 7 booths`);
-
-    const finalForcedBoothCount = await checkinRepo
-      .createQueryBuilder('c')
-      .select('COUNT(DISTINCT c.boothId)', 'count')
-      .where('c.studentId = :studentId', { studentId: forcedStudent.id })
-      .getRawOne<{ count: string }>();
-    const totalCheckins = await checkinRepo.count();
-
-    console.log(`  + Check-ins created: ${totalCheckins}`);
+    console.log('\n[5] Bỏ qua seed sinh viên (Production Mode)');
+    console.log('\n[6] Bỏ qua seed checkin ảo (Production Mode)');
 
     console.log(`\n${'─'.repeat(55)}`);
     console.log(`  All accounts password : ${defaultPassword}`);
-    console.log('  Business admins       : email = <slug>@jobfair');
-    console.log('  School admin          : school@example.com');
+    console.log('  Business admins       : Tự động sinh password vào file .csv');
+    console.log('  School admin          : checkin@admin.com');
     console.log('  System admin          : system@example.com');
     console.log('  Scanner               : scanner@example.com');
     console.log(`  Businesses seeded     : ${SEED_COMPANIES.length}`);
     console.log(`  Workshops seeded      : ${SEED_WORKSHOPS.length}`);
-    console.log(`  Students seeded       : ${studentIds.length}`);
-    console.log(`  Checkin records       : ${totalCheckins}`);
-    console.log(`  Forced student booths : ${FORCED_STUDENT_CODE} => ${finalForcedBoothCount?.count ?? '0'} booths`);
+    
+    fs.writeFileSync('business_credentials.csv', '\uFEFF' + credentials.join('\n'), 'utf8');
+    console.log('\n  📁 Đã xuất danh sách mật khẩu ra file: business_credentials.csv');
+
     console.log(`  Demo event date       : ${DEMO_EVENT_DATE} 08:00–17:00 (+07:00)`);
     console.log(`${'─'.repeat(55)}\n`);
   } finally {

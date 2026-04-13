@@ -35,7 +35,7 @@ async function bootstrap() {
     .setDescription(
       `REST API backend cho hệ thống quản lý hội chợ việc làm DUT 2025.\n\n` +
       `- Xác thực JWT Bearer Token\n` +
-      `- Scanner QR check-in chống duplicate 5 phút\n` +
+      `- Scanner QR check-in chống duplicate theo gian hàng\n` +
       `- Dashboard riêng cho School Admin và Business Admin`,
     )
     .setVersion('1.0.0')

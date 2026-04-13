@@ -3,12 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Booth, BoothType } from '../entities/booth.entity';
-import { Business } from '../entities/business.entity';
+import { Business, BusinessType } from '../entities/business.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { User, UserRole } from '../entities/user.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
 import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateBusinessAccountDto } from './dto/business-account.dto';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class SchoolAdminService {
@@ -623,5 +625,133 @@ export class SchoolAdminService {
         eligibleCount: attendanceList.length,
       },
     ];
+  }
+
+  // GET /school-admin/business-accounts
+  async getBusinessAccounts() {
+    const booths = await this.boothRepo.find({
+      where: { type: BoothType.BOOTH },
+      relations: ['business'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const boothIds = booths.map((b) => b.id);
+    const accountMap = new Map<string, User>();
+    if (boothIds.length > 0) {
+      const accounts = await this.userRepo.find({
+        where: boothIds.map((id) => ({ boothId: id })),
+        order: { createdAt: 'ASC' },
+      });
+      for (const account of accounts) {
+        if (account.boothId && !accountMap.has(account.boothId)) {
+          accountMap.set(account.boothId, account);
+        }
+      }
+    }
+
+    const stats = await this.checkinRepo
+      .createQueryBuilder('c')
+      .select('c.boothId', 'boothId')
+      .addSelect('COUNT(*)', 'totalScans')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
+      .where('c.boothId IN (:...ids)', { ids: boothIds.length ? boothIds : ['00000000-0000-0000-0000-000000000000'] })
+      .groupBy('c.boothId')
+      .getRawMany<{ boothId: string; totalScans: string; uniqueStudents: string }>();
+    const statsMap = new Map(stats.map((item) => [item.boothId, item]));
+
+    return booths.map((booth) => {
+      const account = accountMap.get(booth.id);
+      const boothStats = statsMap.get(booth.id);
+      return {
+        id: booth.id,
+        name: booth.name,
+        displayName: booth.business?.name ?? booth.name,
+        businessId: booth.businessId,
+        type: booth.type,
+        totalScans: parseInt(boothStats?.totalScans ?? '0'),
+        uniqueStudents: parseInt(boothStats?.uniqueStudents ?? '0'),
+        account: account
+          ? {
+              id: account.id,
+              email: account.email,
+              name: account.name,
+              isActive: account.isActive,
+              createdAt: account.createdAt,
+            }
+          : null,
+      };
+    });
+  }
+
+  // POST /school-admin/business-accounts
+  async createBusinessAccount(dto: CreateBusinessAccountDto) {
+    const existingEmail = await this.userRepo.findOne({
+      where: { email: dto.email.trim() },
+    });
+    if (existingEmail) {
+      throw new BadRequestException('Email đã được sử dụng');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.userRepo.manager.transaction(async (manager) => {
+      // 1. Create Business
+      const business = manager.create(Business, {
+        name: dto.name.trim(),
+        type: BusinessType.BOOTH,
+        description: `Gian hàng doanh nghiệp: ${dto.name.trim()}`,
+      });
+      const savedBusiness = await manager.save(business);
+
+      // 2. Create Booth
+      const boothCode = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+      const booth = manager.create(Booth, {
+        name: dto.name.trim(),
+        businessId: savedBusiness.id,
+        capacity: 50,
+        type: BoothType.BOOTH,
+        qrCode: `BOOTH-${boothCode}`,
+      });
+      const savedBooth = await manager.save(booth);
+
+      // 3. Create User
+      const user = manager.create(User, {
+        email: dto.email.trim(),
+        passwordHash,
+        name: dto.name.trim(),
+        role: UserRole.BUSINESS_ADMIN,
+        isActive: true,
+        boothId: savedBooth.id,
+      });
+      const savedUser = await manager.save(user);
+
+      return {
+        message: 'Tạo tài khoản doanh nghiệp thành công',
+        business: savedBusiness,
+        booth: savedBooth,
+        account: {
+          id: savedUser.id,
+          email: savedUser.email,
+          name: savedUser.name,
+          role: savedUser.role,
+        },
+      };
+    });
+  }
+
+  // DELETE /school-admin/business-accounts/:userId
+  async deleteBusinessAccount(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Tài khoản không tồn tại');
+    if (!user.boothId) throw new BadRequestException('Tài khoản không liên kết với gian hàng nào');
+
+    const booth = await this.boothRepo.findOne({ where: { id: user.boothId } });
+    if (!booth) throw new NotFoundException('Gian hàng không tồn tại');
+
+    return this.userRepo.manager.transaction(async (manager) => {
+      await manager.delete(User, { id: userId });
+      await manager.delete(Business, { id: booth.businessId });
+      return { message: 'Đã xoá tài khoản và dữ liệu gian hàng thành công' };
+    });
   }
 }

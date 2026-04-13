@@ -29,18 +29,16 @@ export class CheckinService {
         const booth = await this.boothRepo.findOne({ where: { id: dto.boothId } });
         if (!booth) throw new BadRequestException('Booth not found');
 
-        // 3. Prevent duplicate scan within last 5 minutes
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const recent = await this.checkinRepo
+        // 3. Prevent duplicate scan forever for the same student and booth
+        const existing = await this.checkinRepo
             .createQueryBuilder('c')
             .where('c.studentId = :sid', { sid: dto.studentId })
             .andWhere('c.boothId = :bid', { bid: dto.boothId })
-            .andWhere('c.checkInTime > :limit', { limit: fiveMinutesAgo })
             .getOne();
 
-        if (recent) {
+        if (existing) {
             throw new BadRequestException(
-                'Duplicate check-in: student already checked in at this booth recently',
+                'Duplicate check-in: student already checked in at this booth before',
             );
         }
 
