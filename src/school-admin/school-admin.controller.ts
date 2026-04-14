@@ -8,6 +8,7 @@ import { UserRole } from '../entities/user.entity';
 import { SchoolAdminService } from './school-admin.service';
 import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
+import { CreateWorkshopDto } from './dto/create-workshop.dto';
 
 @ApiTags('school-admin')
 @ApiBearerAuth('access-token')
@@ -67,6 +68,12 @@ export class SchoolAdminController {
     @Get('workshops/:boothId')
     getWorkshopDetail(@Param('boothId', ParseUUIDPipe) boothId: string) {
         return this.schoolAdminService.getWorkshopDetail(boothId);
+    }
+
+    @ApiOperation({ summary: 'Tạo workshop mới (Business + Booth)' })
+    @Post('workshops')
+    createWorkshop(@Body() dto: CreateWorkshopDto) {
+        return this.schoolAdminService.createWorkshop(dto);
     }
 
     @ApiOperation({ summary: 'Tạo tài khoản cho workshop' })

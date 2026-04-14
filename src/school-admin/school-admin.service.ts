@@ -10,6 +10,7 @@ import { User, UserRole } from '../entities/user.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
 import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
+import { CreateWorkshopDto } from './dto/create-workshop.dto';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -315,6 +316,63 @@ export class SchoolAdminService {
         type: b.type,
         totalScans: parseInt(s?.totalScans ?? '0'),
         uniqueStudents: parseInt(s?.uniqueStudents ?? '0'),
+      };
+    });
+  }
+
+  // POST /school-admin/workshops
+  async createWorkshop(dto: CreateWorkshopDto) {
+    const existingEmail = await this.userRepo.findOne({
+      where: { email: dto.email.trim() },
+    });
+    if (existingEmail) {
+      throw new BadRequestException('Email đã được sử dụng');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.boothRepo.manager.transaction(async (manager) => {
+      // 1. Create Business (workshop type)
+      const business = manager.create(Business, {
+        name: dto.name.trim(),
+        type: BusinessType.WORKSHOP,
+        description: `Hội thảo chuyên đề tại DUT Job Fair.`,
+      });
+      const savedBusiness = await manager.save(business);
+
+      // 2. Create Booth (workshop type)
+      const boothCode = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
+      const booth = manager.create(Booth, {
+        name: dto.name.trim(),
+        capacity: 100,
+        businessId: savedBusiness.id,
+        qrCode: `WS-${boothCode}`,
+        type: BoothType.WORKSHOP,
+      });
+      const savedBooth = await manager.save(booth);
+
+      // 3. Create User account
+      const user = manager.create(User, {
+        email: dto.email.trim(),
+        passwordHash,
+        name: dto.name.trim(),
+        role: UserRole.BUSINESS_ADMIN,
+        isActive: true,
+        boothId: savedBooth.id,
+      });
+      const savedUser = await manager.save(user);
+
+      return {
+        message: 'Tạo workshop và tài khoản thành công',
+        data: {
+          business: savedBusiness,
+          booth: savedBooth,
+          account: {
+            id: savedUser.id,
+            email: savedUser.email,
+            name: savedUser.name,
+          },
+        },
       };
     });
   }
