@@ -17,7 +17,7 @@ type AuthenticatedBusinessAdminUser = {
 @ApiTags('business-admin')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.BUSINESS_ADMIN, UserRole.SYSTEM_ADMIN)
+@Roles(UserRole.BUSINESS_ADMIN, UserRole.SYSTEM_ADMIN, UserRole.SCHOOL_ADMIN)
 @Controller('business-admin')
 export class BusinessAdminController {
     constructor(private readonly businessAdminService: BusinessAdminService) { }

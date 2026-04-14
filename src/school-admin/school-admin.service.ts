@@ -8,7 +8,7 @@ import { Checkin } from '../entities/checkin.entity';
 import { Student } from '../entities/student.entity';
 import { User, UserRole } from '../entities/user.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
-import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
 import { randomUUID } from 'crypto';
 
@@ -136,20 +136,22 @@ export class SchoolAdminService {
       .getRawMany<{ hour: string; count: string }>();
 
     // Year distribution
-    const yearDist = await this.studentRepo
-      .createQueryBuilder('s')
+    const yearDist = await this.checkinRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select('s.year', 'year')
-      .addSelect('COUNT(*)', 'count')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'count')
       .where('s.year IS NOT NULL')
       .groupBy('s.year')
       .orderBy('year')
       .getRawMany<{ year: string; count: string }>();
 
     // Department distribution
-    const deptDist = await this.studentRepo
-      .createQueryBuilder('s')
+    const deptDist = await this.checkinRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select('s.department', 'department')
-      .addSelect('COUNT(*)', 'count')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'count')
       .where('s.department IS NOT NULL')
       .groupBy('s.department')
       .orderBy('count', 'DESC')
@@ -408,7 +410,7 @@ export class SchoolAdminService {
           .createQueryBuilder('c')
           .leftJoin('c.student', 's')
           .select('s.department', 'department')
-          .addSelect('COUNT(*)', 'count')
+          .addSelect('COUNT(DISTINCT c.studentId)', 'count')
           .where('c.boothId = :boothId AND s.department IS NOT NULL', {
             boothId,
           })
@@ -510,8 +512,128 @@ export class SchoolAdminService {
         name: user.name,
         role: user.role,
         isActive: user.isActive,
+      },
+    };
+  }
+
+  // PATCH /school-admin/workshops/:boothId/account
+  async updateWorkshopAccount(boothId: string, dto: UpdateWorkshopAccountDto) {
+    const workshop = await this.boothRepo.findOne({
+      where: { id: boothId, type: BoothType.WORKSHOP },
+    });
+    if (!workshop) throw new NotFoundException('Workshop không tồn tại');
+
+    const user = await this.userRepo.findOne({ where: { boothId } });
+    if (!user) {
+      throw new NotFoundException('Tài khoản cho workshop này chưa được tạo');
+    }
+
+    if (dto.email && dto.email.trim() !== user.email) {
+      const duplicateUser = await this.userRepo.findOne({ where: { email: dto.email.trim().toLowerCase() } });
+      if (duplicateUser && duplicateUser.id !== user.id) {
+        throw new BadRequestException('Email đã tồn tại trong hệ thống');
+      }
+      user.email = dto.email.trim().toLowerCase();
+    }
+
+    if (dto.name && dto.name.trim() !== '') {
+      user.name = dto.name.trim();
+    }
+
+    if (dto.password && dto.password.trim() !== '') {
+      user.passwordHash = await bcrypt.hash(dto.password, 10);
+    }
+
+    await this.userRepo.save(user);
+
+    return {
+      message: 'Cập nhật tài khoản workshop thành công',
+      account: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isActive: user.isActive,
         boothId: user.boothId,
       },
+    };
+  }
+
+  async exportBusinessBoothVisitorsExcel() {
+    const rows = await this.studentRepo.createQueryBuilder('s')
+      .innerJoin('s.checkins', 'c')
+      .innerJoin('c.booth', 'b')
+      .select([
+        's.id as id',
+        's.fullName as "fullName"',
+        's.studentCode as "studentCode"',
+        's.className as "className"',
+        's.department as department',
+        's.year as year',
+        's.email as email',
+        's.phone as phone'
+      ])
+      .addSelect('COUNT(DISTINCT c."boothId")', 'visitedCount')
+      .where('b.type = :type', { type: BoothType.BOOTH })
+      .groupBy('s.id')
+      .orderBy('"visitedCount"', 'DESC')
+      .addOrderBy('s."studentCode"', 'ASC')
+      .getRawMany();
+
+    const headers = ['STT', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'Năm học', 'SĐT', 'Email', 'Số gian hàng doanh nghiệp đã ghé'];
+    const bodyRows = rows.map((row, idx) => [
+        (idx + 1).toString(),
+        row.fullName ?? '',
+        row.studentCode ?? '',
+        row.className ?? '',
+        row.department ?? '',
+        row.year?.toString() ?? '',
+        row.phone ?? '',
+        row.email ?? '',
+        row.visitedCount?.toString() ?? '1',
+    ]);
+
+    const escapeXmlLocal = (value: string) => {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    };
+
+    const xmlRows = [headers, ...bodyRows]
+        .map(
+            (columns) =>
+                `<Row>${columns
+                    .map(
+                        (value) =>
+                            `<Cell><Data ss:Type="String">${escapeXmlLocal(value)}</Data></Cell>`,
+                    )
+                    .join('')}</Row>`,
+        )
+        .join('');
+
+    const xml =
+        '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<?mso-application progid="Excel.Sheet"?>\n' +
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" \n' +
+        'xmlns:o="urn:schemas-microsoft-com:office:office" \n' +
+        'xmlns:x="urn:schemas-microsoft-com:office:excel" \n' +
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n' +
+        '<Worksheet ss:Name="Danh sach SV tham gia booth">\n' +
+        '<Table>\n' +
+        xmlRows +
+        '</Table>\n' +
+        '</Worksheet>\n' +
+        '</Workbook>';
+
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+
+    return {
+        fileName: `booth-visitors-${dateStr}.xls`,
+        xml,
     };
   }
 

@@ -340,15 +340,20 @@ export class ScannerService {
   }
 
   private deriveYearFromStudentCode(studentCode: string) {
-    const prefix = studentCode.trim().slice(0, 5);
+    const code = studentCode.trim();
+    if (code.length < 5) return null;
+    const yearStr = code.slice(3, 5);
     const yearMap: Record<string, number> = {
-      '10221': 5,
-      '10222': 4,
-      '10223': 3,
-      '10224': 2,
-      '10225': 1,
+      '25': 1,
+      '24': 2,
+      '23': 3,
+      '22': 4,
+      '21': 5,
+      '20': 6,
+      '19': 7,
+      '18': 8,
     };
 
-    return yearMap[prefix] ?? null;
+    return yearMap[yearStr] ?? null;
   }
 }

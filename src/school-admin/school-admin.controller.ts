@@ -1,11 +1,12 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Patch, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import type { Response } from 'express';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { SchoolAdminService } from './school-admin.service';
-import { CreateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
 
 @ApiTags('school-admin')
@@ -42,6 +43,18 @@ export class SchoolAdminController {
         return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30);
     }
 
+    @ApiOperation({ summary: 'Xuất danh sách sinh viên tham gia gian hàng doanh nghiệp' })
+    @Get('booth-visitors/export/excel')
+    async exportBusinessBoothVisitorsExcel(@Res() res: Response) {
+        const result = await this.schoolAdminService.exportBusinessBoothVisitorsExcel();
+        res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${result.fileName}"`,
+        );
+        res.status(200).send(`\uFEFF${result.xml}`);
+    }
+
     @ApiOperation({ summary: 'Thống kê số lượt quét và sinh viên theo từng gian hàng' })
     @Get('booth-stats')
     getBoothStats() { return this.schoolAdminService.getBoothStats(); }
@@ -63,6 +76,15 @@ export class SchoolAdminController {
         @Body() dto: CreateWorkshopAccountDto,
     ) {
         return this.schoolAdminService.createWorkshopAccount(boothId, dto);
+    }
+
+    @ApiOperation({ summary: 'Cập nhật tài khoản cho workshop (đổi email, password)' })
+    @Patch('workshops/:boothId/account')
+    updateWorkshopAccount(
+        @Param('boothId', ParseUUIDPipe) boothId: string,
+        @Body() dto: UpdateWorkshopAccountDto,
+    ) {
+        return this.schoolAdminService.updateWorkshopAccount(boothId, dto);
     }
 
     @ApiOperation({ summary: 'Danh sách giải thưởng kèm sinh viên đủ điều kiện' })

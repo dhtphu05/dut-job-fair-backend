@@ -21,3 +21,24 @@ export class CreateWorkshopAccountDto {
   @IsString()
   name?: string;
 }
+
+export class UpdateWorkshopAccountDto {
+  @ApiPropertyOptional({ example: 'new-email@jobfair', description: 'Tên đăng nhập (email) mới' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  email?: string;
+
+  @ApiPropertyOptional({ example: 'newpassword123', minLength: 6, description: 'Mật khẩu mới (nếu muốn đổi)' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  password?: string;
+
+  @ApiPropertyOptional({ example: 'Tên mới của tài khoản', description: 'Tên hiển thị mới' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+}
