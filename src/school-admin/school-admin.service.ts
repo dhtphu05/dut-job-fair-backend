@@ -631,7 +631,7 @@ export class SchoolAdminService {
         's.email as email',
         's.phone as phone'
       ])
-      .addSelect('COUNT(DISTINCT c."boothId")', 'visitedCount')
+      .addSelect('COUNT(DISTINCT c.booth_id)', 'visitedCount')
       .where('b.type = :type', { type: BoothType.BOOTH })
       .groupBy('s.id')
       .orderBy('"visitedCount"', 'DESC')
