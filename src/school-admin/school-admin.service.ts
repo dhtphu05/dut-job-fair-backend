@@ -621,21 +621,26 @@ export class SchoolAdminService {
     const rows = await this.studentRepo.createQueryBuilder('s')
       .innerJoin('s.checkins', 'c')
       .innerJoin('c.booth', 'b')
-      .select([
-        's.id as id',
-        's.fullName as "fullName"',
-        's.studentCode as "studentCode"',
-        's.className as "className"',
-        's.department as department',
-        's.year as year',
-        's.email as email',
-        's.phone as phone'
-      ])
-      .addSelect('COUNT(DISTINCT c.booth_id)', 'visitedCount')
+      .select('s.id', 'id')
+      .addSelect('s.fullName', 'fullName')
+      .addSelect('s.studentCode', 'studentCode')
+      .addSelect('s.className', 'className')
+      .addSelect('s.department', 'department')
+      .addSelect('s.year', 'year')
+      .addSelect('s.email', 'email')
+      .addSelect('s.phone', 'phone')
+      .addSelect('COUNT(DISTINCT c.boothId)', 'visitedCount')
       .where('b.type = :type', { type: BoothType.BOOTH })
       .groupBy('s.id')
-      .orderBy('"visitedCount"', 'DESC')
-      .addOrderBy('s."studentCode"', 'ASC')
+      .addGroupBy('s.fullName')
+      .addGroupBy('s.studentCode')
+      .addGroupBy('s.className')
+      .addGroupBy('s.department')
+      .addGroupBy('s.year')
+      .addGroupBy('s.email')
+      .addGroupBy('s.phone')
+      .orderBy('COUNT(DISTINCT c.boothId)', 'DESC')
+      .addOrderBy('s.studentCode', 'ASC')
       .getRawMany();
 
     const headers = ['STT', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'Năm học', 'SĐT', 'Email', 'Số gian hàng doanh nghiệp đã ghé'];
