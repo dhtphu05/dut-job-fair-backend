@@ -9,8 +9,10 @@ import { Student } from '../entities/student.entity';
 import { User, UserRole } from '../entities/user.entity';
 import { DEMO_EVENT_DATE, DEMO_EVENT_END, DEMO_EVENT_START } from '../seed-data/companies';
 import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateTotnghiepAccountDto, UpdateTotnghiepAccountDto } from './dto/totnghiep-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
 import { CreateWorkshopDto } from './dto/create-workshop.dto';
+import { CreateTotnghiepDto } from './dto/create-totnghiep.dto';
 import { randomUUID } from 'crypto';
 
 @Injectable()
@@ -37,9 +39,8 @@ export class SchoolAdminService {
     ]);
 
     const totalBooths = booths.filter((b) => b.type === BoothType.BOOTH).length;
-    const totalWorkshops = booths.filter(
-      (b) => b.type === BoothType.WORKSHOP,
-    ).length;
+    const totalWorkshops = booths.filter((b) => b.type === BoothType.WORKSHOP).length;
+    const totalTotnghieps = booths.filter((b) => b.type === BoothType.TOTNGHIEP).length;
 
     const uniqueCheckinsResult = await this.checkinRepo
       .createQueryBuilder('c')
@@ -67,15 +68,12 @@ export class SchoolAdminService {
 
     const byTypeStats = {
       booth: { totalUnits: totalBooths, totalCheckins: 0, uniqueVisitors: 0 },
-      workshop: {
-        totalUnits: totalWorkshops,
-        totalCheckins: 0,
-        uniqueVisitors: 0,
-      },
+      workshop: { totalUnits: totalWorkshops, totalCheckins: 0, uniqueVisitors: 0 },
+      totnghiep: { totalUnits: totalTotnghieps, totalCheckins: 0, uniqueVisitors: 0 },
     };
 
     for (const row of groupedByType) {
-      const key = row.type === BoothType.WORKSHOP ? 'workshop' : 'booth';
+      const key = this.getBoothTypeStatsKey(row.type);
       byTypeStats[key] = {
         ...byTypeStats[key],
         totalCheckins: parseInt(row.totalCheckins),
@@ -90,13 +88,13 @@ export class SchoolAdminService {
         uniqueVisitors: parseInt(uniqueCheckinsResult?.count ?? '0'),
         totalBooths,
         totalWorkshops,
+        totalTotnghieps,
         byType: byTypeStats,
       },
       booths: booths.slice(0, 20).map((b) => ({
         id: b.id,
         name: b.name,
-        displayName:
-          b.type === BoothType.WORKSHOP ? b.business?.name ?? b.name : b.name,
+        displayName: this.getBoothDisplayName(b),
         business: b.business?.name,
         location: b.location,
         capacity: b.capacity,
@@ -112,10 +110,7 @@ export class SchoolAdminService {
         booth: {
           id: c.booth?.id,
           name: c.booth?.name,
-          displayName:
-            c.booth?.type === BoothType.WORKSHOP
-              ? c.booth?.business?.name ?? c.booth?.name
-              : c.booth?.name,
+          displayName: c.booth ? this.getBoothDisplayName(c.booth) : null,
           business: c.booth?.business?.name,
           type: c.booth?.type ?? BoothType.BOOTH,
         },
@@ -199,11 +194,18 @@ export class SchoolAdminService {
         count: parseInt(d.count),
         uniqueStudents: parseInt(d.uniqueStudents),
       })),
-      checkinTypeDistribution: checkinTypeDistribution.map((item) => ({
-        type: item.type ?? BoothType.BOOTH,
-        count: parseInt(item.count),
-        uniqueStudents: parseInt(item.uniqueStudents),
-      })),
+      checkinTypeDistribution: [
+        BoothType.BOOTH,
+        BoothType.WORKSHOP,
+        BoothType.TOTNGHIEP,
+      ].map((type) => {
+        const item = checkinTypeDistribution.find((entry) => entry.type === type);
+        return {
+          type,
+          count: parseInt(item?.count ?? '0'),
+          uniqueStudents: parseInt(item?.uniqueStudents ?? '0'),
+        };
+      }),
     };
   }
 
@@ -260,10 +262,7 @@ export class SchoolAdminService {
         booth: {
           id: c.booth?.id,
           name: c.booth?.name,
-          displayName:
-            c.booth?.type === BoothType.WORKSHOP
-              ? c.booth?.business?.name ?? c.booth?.name
-              : c.booth?.name,
+          displayName: c.booth ? this.getBoothDisplayName(c.booth) : null,
           business: c.booth?.business?.name ?? null,
           type: c.booth?.type ?? BoothType.BOOTH,
         },
@@ -309,8 +308,7 @@ export class SchoolAdminService {
       return {
         id: b.id,
         name: b.name,
-        displayName:
-          b.type === BoothType.WORKSHOP ? b.business?.name ?? b.name : b.name,
+        displayName: this.getBoothDisplayName(b),
         business: b.business?.name ?? b.name,
         location: b.location,
         type: b.type,
@@ -322,6 +320,112 @@ export class SchoolAdminService {
 
   // POST /school-admin/workshops
   async createWorkshop(dto: CreateWorkshopDto) {
+    return this.createManagedBoothWithAccount(
+      dto,
+      BoothType.WORKSHOP,
+      BusinessType.WORKSHOP,
+      'Workshop',
+      'workshop',
+      'WS',
+      100,
+      'Hội thảo chuyên đề tại DUT Job Fair.',
+    );
+  }
+
+  // POST /school-admin/totnghieps
+  async createTotnghiep(dto: CreateTotnghiepDto) {
+    return this.createManagedBoothWithAccount(
+      dto,
+      BoothType.TOTNGHIEP,
+      BusinessType.TOTNGHIEP,
+      'Totnghiep',
+      'Totnghiep',
+      'TN',
+      100,
+      'Khu vực Totnghiep tại DUT Job Fair.',
+    );
+  }
+
+  // GET /school-admin/workshops
+  async getWorkshops() {
+    return this.getManagedBooths(BoothType.WORKSHOP);
+  }
+
+  // GET /school-admin/totnghieps
+  async getTotnghieps() {
+    return this.getManagedBooths(BoothType.TOTNGHIEP);
+  }
+
+  // GET /school-admin/workshops/:boothId
+  async getWorkshopDetail(boothId: string) {
+    return this.getManagedBoothDetail(boothId, BoothType.WORKSHOP, 'workshop', 'Workshop');
+  }
+
+  // GET /school-admin/totnghieps/:boothId
+  async getTotnghiepDetail(boothId: string) {
+    return this.getManagedBoothDetail(boothId, BoothType.TOTNGHIEP, 'totnghiep', 'Totnghiep');
+  }
+
+  // POST /school-admin/workshops/:boothId/account
+  async createWorkshopAccount(
+    boothId: string,
+    dto: CreateWorkshopAccountDto,
+  ) {
+    return this.createManagedAccount(
+      boothId,
+      dto,
+      BoothType.WORKSHOP,
+      'workshop',
+      'Workshop',
+    );
+  }
+
+  // POST /school-admin/totnghieps/:boothId/account
+  async createTotnghiepAccount(
+    boothId: string,
+    dto: CreateTotnghiepAccountDto,
+  ) {
+    return this.createManagedAccount(
+      boothId,
+      dto,
+      BoothType.TOTNGHIEP,
+      'Totnghiep',
+      'Totnghiep',
+    );
+  }
+
+  // PATCH /school-admin/workshops/:boothId/account
+  async updateWorkshopAccount(boothId: string, dto: UpdateWorkshopAccountDto) {
+    return this.updateManagedAccount(
+      boothId,
+      dto,
+      BoothType.WORKSHOP,
+      'workshop',
+      'Workshop',
+    );
+  }
+
+  // PATCH /school-admin/totnghieps/:boothId/account
+  async updateTotnghiepAccount(boothId: string, dto: UpdateTotnghiepAccountDto) {
+    return this.updateManagedAccount(
+      boothId,
+      dto,
+      BoothType.TOTNGHIEP,
+      'Totnghiep',
+      'Totnghiep',
+    );
+  }
+
+  private async createManagedBoothWithAccount(
+    dto: { name: string; email: string; password: string },
+    boothType: BoothType,
+    businessType: BusinessType,
+    responseKey: 'Workshop' | 'Totnghiep',
+    label: string,
+    qrPrefix: string,
+    capacity: number,
+    description: string,
+  ) {
     const existingEmail = await this.userRepo.findOne({
       where: { email: dto.email.trim() },
     });
@@ -332,26 +436,23 @@ export class SchoolAdminService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
 
     return this.boothRepo.manager.transaction(async (manager) => {
-      // 1. Create Business (workshop type)
       const business = manager.create(Business, {
         name: dto.name.trim(),
-        type: BusinessType.WORKSHOP,
-        description: `Hội thảo chuyên đề tại DUT Job Fair.`,
+        type: businessType,
+        description,
       });
       const savedBusiness = await manager.save(business);
 
-      // 2. Create Booth (workshop type)
       const boothCode = randomUUID().replace(/-/g, '').substring(0, 8).toUpperCase();
       const booth = manager.create(Booth, {
         name: dto.name.trim(),
-        capacity: 100,
+        capacity,
         businessId: savedBusiness.id,
-        qrCode: `WS-${boothCode}`,
-        type: BoothType.WORKSHOP,
+        qrCode: `${qrPrefix}-${boothCode}`,
+        type: boothType,
       });
       const savedBooth = await manager.save(booth);
 
-      // 3. Create User account
       const user = manager.create(User, {
         email: dto.email.trim(),
         passwordHash,
@@ -363,7 +464,7 @@ export class SchoolAdminService {
       const savedUser = await manager.save(user);
 
       return {
-        message: 'Tạo workshop và tài khoản thành công',
+        message: `Tạo ${label} và tài khoản thành công`,
         data: {
           business: savedBusiness,
           booth: savedBooth,
@@ -377,55 +478,30 @@ export class SchoolAdminService {
     });
   }
 
-  // GET /school-admin/workshops
-  async getWorkshops() {
-    const workshops = await this.boothRepo.find({
-      where: { type: BoothType.WORKSHOP },
+  private async getManagedBooths(boothType: BoothType) {
+    const booths = await this.boothRepo.find({
+      where: { type: boothType },
       relations: ['business'],
       order: { createdAt: 'ASC' },
     });
 
-    const workshopIds = workshops.map((workshop) => workshop.id);
-    const accountMap = new Map<string, User>();
-    if (workshopIds.length > 0) {
-      const accounts = await this.userRepo.find({
-        where: workshopIds.map((id) => ({ boothId: id })),
-        order: { createdAt: 'ASC' },
-      });
-      for (const account of accounts) {
-        if (account.boothId && !accountMap.has(account.boothId)) {
-          accountMap.set(account.boothId, account);
-        }
-      }
-    }
+    const boothIds = booths.map((booth) => booth.id);
+    const accountMap = await this.buildAccountMap(boothIds);
+    const statsMap = await this.buildCheckinStatsMap(boothIds);
 
-    const stats = await this.checkinRepo
-      .createQueryBuilder('c')
-      .select('c.boothId', 'boothId')
-      .addSelect('COUNT(*)', 'totalScans')
-      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
-      .where('c.boothId IN (:...ids)', { ids: workshopIds.length ? workshopIds : ['00000000-0000-0000-0000-000000000000'] })
-      .groupBy('c.boothId')
-      .getRawMany<{
-        boothId: string;
-        totalScans: string;
-        uniqueStudents: string;
-      }>();
-    const statsMap = new Map(stats.map((item) => [item.boothId, item]));
-
-    return workshops.map((workshop) => {
-      const account = accountMap.get(workshop.id);
-      const workshopStats = statsMap.get(workshop.id);
+    return booths.map((booth) => {
+      const account = accountMap.get(booth.id);
+      const boothStats = statsMap.get(booth.id);
       return {
-        id: workshop.id,
-        name: workshop.name,
-        displayName: workshop.business?.name ?? workshop.name,
-        location: workshop.location,
-        capacity: workshop.capacity,
-        qrCode: workshop.qrCode,
-        type: workshop.type,
-        totalScans: parseInt(workshopStats?.totalScans ?? '0'),
-        uniqueStudents: parseInt(workshopStats?.uniqueStudents ?? '0'),
+        id: booth.id,
+        name: booth.name,
+        displayName: this.getBoothDisplayName(booth),
+        location: booth.location,
+        capacity: booth.capacity,
+        qrCode: booth.qrCode,
+        type: booth.type,
+        totalScans: parseInt(boothStats?.totalScans ?? '0'),
+        uniqueStudents: parseInt(boothStats?.uniqueStudents ?? '0'),
         account: account
           ? {
               id: account.id,
@@ -440,13 +516,17 @@ export class SchoolAdminService {
     });
   }
 
-  // GET /school-admin/workshops/:boothId
-  async getWorkshopDetail(boothId: string) {
+  private async getManagedBoothDetail(
+    boothId: string,
+    boothType: BoothType,
+    responseKey: 'workshop' | 'totnghiep',
+    entityLabel: string,
+  ) {
     const booth = await this.boothRepo.findOne({
-      where: { id: boothId, type: BoothType.WORKSHOP },
+      where: { id: boothId, type: boothType },
       relations: ['business'],
     });
-    if (!booth) throw new NotFoundException('Workshop không tồn tại');
+    if (!booth) throw new NotFoundException(`${entityLabel} không tồn tại`);
 
     const account = await this.userRepo.findOne({ where: { boothId } });
 
@@ -478,10 +558,10 @@ export class SchoolAdminService {
       ]);
 
     return {
-      workshop: {
+      [responseKey]: {
         id: booth.id,
         name: booth.name,
-        displayName: booth.business?.name ?? booth.name,
+        displayName: this.getBoothDisplayName(booth),
         businessId: booth.businessId,
         business: booth.business?.name ?? booth.name,
         location: booth.location,
@@ -521,20 +601,22 @@ export class SchoolAdminService {
     };
   }
 
-  // POST /school-admin/workshops/:boothId/account
-  async createWorkshopAccount(
+  private async createManagedAccount(
     boothId: string,
-    dto: CreateWorkshopAccountDto,
+    dto: { email: string; password: string; name?: string },
+    boothType: BoothType,
+    entityLabel: string,
+    entityName: string,
   ) {
-    const workshop = await this.boothRepo.findOne({
-      where: { id: boothId, type: BoothType.WORKSHOP },
+    const booth = await this.boothRepo.findOne({
+      where: { id: boothId, type: boothType },
       relations: ['business'],
     });
-    if (!workshop) throw new NotFoundException('Workshop không tồn tại');
+    if (!booth) throw new NotFoundException(`${entityName} không tồn tại`);
 
-    const existingForWorkshop = await this.userRepo.findOne({ where: { boothId } });
-    if (existingForWorkshop) {
-      throw new BadRequestException('Workshop này đã có tài khoản');
+    const existingForBooth = await this.userRepo.findOne({ where: { boothId } });
+    if (existingForBooth) {
+      throw new BadRequestException(`${entityName} này đã có tài khoản`);
     }
 
     const existingEmail = await this.userRepo.findOne({
@@ -549,20 +631,20 @@ export class SchoolAdminService {
       this.userRepo.create({
         email: dto.email.trim(),
         passwordHash,
-        name: dto.name?.trim() || workshop.business?.name || workshop.name,
+        name: dto.name?.trim() || booth.business?.name || booth.name,
         role: UserRole.BUSINESS_ADMIN,
         isActive: true,
-        boothId: workshop.id,
+        boothId: booth.id,
       }),
     );
 
     return {
-      message: 'Đã tạo tài khoản cho workshop',
-      workshop: {
-        id: workshop.id,
-        name: workshop.name,
-        displayName: workshop.business?.name ?? workshop.name,
-        type: workshop.type,
+      message: `Đã tạo tài khoản cho ${entityLabel}`,
+      [entityLabel.toLowerCase()]: {
+        id: booth.id,
+        name: booth.name,
+        displayName: this.getBoothDisplayName(booth),
+        type: booth.type,
       },
       account: {
         id: user.id,
@@ -574,20 +656,27 @@ export class SchoolAdminService {
     };
   }
 
-  // PATCH /school-admin/workshops/:boothId/account
-  async updateWorkshopAccount(boothId: string, dto: UpdateWorkshopAccountDto) {
-    const workshop = await this.boothRepo.findOne({
-      where: { id: boothId, type: BoothType.WORKSHOP },
+  private async updateManagedAccount(
+    boothId: string,
+    dto: { email?: string; password?: string; name?: string },
+    boothType: BoothType,
+    entityLabel: string,
+    entityName: string,
+  ) {
+    const booth = await this.boothRepo.findOne({
+      where: { id: boothId, type: boothType },
     });
-    if (!workshop) throw new NotFoundException('Workshop không tồn tại');
+    if (!booth) throw new NotFoundException(`${entityName} không tồn tại`);
 
     const user = await this.userRepo.findOne({ where: { boothId } });
     if (!user) {
-      throw new NotFoundException('Tài khoản cho workshop này chưa được tạo');
+      throw new NotFoundException(`Tài khoản cho ${entityLabel} này chưa được tạo`);
     }
 
     if (dto.email && dto.email.trim() !== user.email) {
-      const duplicateUser = await this.userRepo.findOne({ where: { email: dto.email.trim().toLowerCase() } });
+      const duplicateUser = await this.userRepo.findOne({
+        where: { email: dto.email.trim().toLowerCase() },
+      });
       if (duplicateUser && duplicateUser.id !== user.id) {
         throw new BadRequestException('Email đã tồn tại trong hệ thống');
       }
@@ -605,7 +694,7 @@ export class SchoolAdminService {
     await this.userRepo.save(user);
 
     return {
-      message: 'Cập nhật tài khoản workshop thành công',
+      message: `Cập nhật tài khoản ${entityLabel} thành công`,
       account: {
         id: user.id,
         email: user.email,
@@ -615,6 +704,57 @@ export class SchoolAdminService {
         boothId: user.boothId,
       },
     };
+  }
+
+  private async buildAccountMap(boothIds: string[]) {
+    const accountMap = new Map<string, User>();
+    if (boothIds.length === 0) return accountMap;
+
+    const accounts = await this.userRepo.find({
+      where: boothIds.map((id) => ({ boothId: id })),
+      order: { createdAt: 'ASC' },
+    });
+    for (const account of accounts) {
+      if (account.boothId && !accountMap.has(account.boothId)) {
+        accountMap.set(account.boothId, account);
+      }
+    }
+
+    return accountMap;
+  }
+
+  private async buildCheckinStatsMap(boothIds: string[]) {
+    const stats = await this.checkinRepo
+      .createQueryBuilder('c')
+      .select('c.boothId', 'boothId')
+      .addSelect('COUNT(*)', 'totalScans')
+      .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
+      .where('c.boothId IN (:...ids)', {
+        ids: boothIds.length ? boothIds : ['00000000-0000-0000-0000-000000000000'],
+      })
+      .groupBy('c.boothId')
+      .getRawMany<{ boothId: string; totalScans: string; uniqueStudents: string }>();
+
+    return new Map(stats.map((item) => [item.boothId, item]));
+  }
+
+  private getBoothTypeStatsKey(type: BoothType) {
+    switch (type) {
+      case BoothType.WORKSHOP:
+        return 'workshop' as const;
+      case BoothType.TOTNGHIEP:
+        return 'totnghiep' as const;
+      default:
+        return 'booth' as const;
+    }
+  }
+
+  private getBoothDisplayName(booth: Pick<Booth, 'name' | 'type'> & { business?: Business | null }) {
+    if (booth.type === BoothType.BOOTH) {
+      return booth.name;
+    }
+
+    return booth.business?.name ?? booth.name;
   }
 
   async exportBusinessBoothVisitorsExcel() {

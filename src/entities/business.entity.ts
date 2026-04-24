@@ -10,6 +10,7 @@ import { Booth } from './booth.entity';
 export enum BusinessType {
     BOOTH = 'booth',
     WORKSHOP = 'workshop',
+    TOTNGHIEP = 'totnghiep',
 }
 
 @Entity('businesses')

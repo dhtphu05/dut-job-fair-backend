@@ -13,16 +13,28 @@ type AuthenticatedBusinessAdminUser = {
     boothId?: string | null;
 };
 
-type WorkshopAttendanceRow = {
+type AttendanceRow = {
     stt: number;
     studentId: string;
-    workshopName: string;
+    unitName: string;
     fullName: string;
     studentCode: string;
     className: string | null;
     department: string | null;
     phone: string | null;
     checkInTime: string;
+};
+
+type AttendanceConfig = {
+    boothType: BoothType;
+    entityKey: 'workshop' | 'totnghiep';
+    entityLabel: string;
+    entityLabelLower: string;
+    listTitle: string;
+    sheetName: string;
+    filePrefix: string;
+    nameField: 'workshopName' | 'totnghiepName';
+    nameColumnTitle: string;
 };
 
 @Injectable()
@@ -38,10 +50,11 @@ export class BusinessAdminService {
 
     // GET /business-admin/dashboard
     async getDashboard(businessId: string) {
-        const booths = await this.boothRepo.find({ where: { businessId } });
+        const booths = await this.boothRepo.find({ where: { businessId }, relations: ['business'] });
         const boothIds = booths.map((b) => b.id);
-        const boothOnlyCount = booths.filter((b) => b.type === BoothType.BOOTH).length;
-        const workshopCount = booths.filter((b) => b.type === BoothType.WORKSHOP).length;
+        const totalBooths = booths.filter((b) => b.type === BoothType.BOOTH).length;
+        const totalWorkshops = booths.filter((b) => b.type === BoothType.WORKSHOP).length;
+        const totalTotnghieps = booths.filter((b) => b.type === BoothType.TOTNGHIEP).length;
 
         if (boothIds.length === 0) {
             return {
@@ -50,9 +63,11 @@ export class BusinessAdminService {
                     uniqueVisitors: 0,
                     totalBooths: 0,
                     totalWorkshops: 0,
+                    totalTotnghieps: 0,
                     byType: {
                         booth: { totalUnits: 0, totalVisitors: 0, uniqueVisitors: 0 },
                         workshop: { totalUnits: 0, totalVisitors: 0, uniqueVisitors: 0 },
+                        totnghiep: { totalUnits: 0, totalVisitors: 0, uniqueVisitors: 0 },
                     },
                 }, booths: []
             };
@@ -80,12 +95,13 @@ export class BusinessAdminService {
             .getRawMany<{ type: BoothType; totalVisitors: string; uniqueVisitors: string }>();
 
         const byTypeStats = {
-            booth: { totalUnits: boothOnlyCount, totalVisitors: 0, uniqueVisitors: 0 },
-            workshop: { totalUnits: workshopCount, totalVisitors: 0, uniqueVisitors: 0 },
+            booth: { totalUnits: totalBooths, totalVisitors: 0, uniqueVisitors: 0 },
+            workshop: { totalUnits: totalWorkshops, totalVisitors: 0, uniqueVisitors: 0 },
+            totnghiep: { totalUnits: totalTotnghieps, totalVisitors: 0, uniqueVisitors: 0 },
         };
 
         for (const row of groupedByType) {
-            const key = row.type === BoothType.WORKSHOP ? 'workshop' : 'booth';
+            const key = this.getBoothTypeStatsKey(row.type);
             byTypeStats[key] = {
                 ...byTypeStats[key],
                 totalVisitors: parseInt(row.totalVisitors),
@@ -104,11 +120,19 @@ export class BusinessAdminService {
             stats: {
                 totalVisitors: totalCheckins,
                 uniqueVisitors: parseInt(uniqueResult?.count ?? '0'),
-                totalBooths: boothOnlyCount,
-                totalWorkshops: workshopCount,
+                totalBooths,
+                totalWorkshops,
+                totalTotnghieps,
                 byType: byTypeStats,
             },
-            booths: booths.map((b) => ({ id: b.id, name: b.name, location: b.location, capacity: b.capacity, type: b.type })),
+            booths: booths.map((b) => ({
+                id: b.id,
+                name: b.name,
+                displayName: this.getBoothDisplayName(b),
+                location: b.location,
+                capacity: b.capacity,
+                type: b.type,
+            })),
             recentScans: recentScans.map((c) => ({
                 id: c.id,
                 student: {
@@ -119,7 +143,7 @@ export class BusinessAdminService {
                     phone: c.student?.phone ?? null,
                 },
                 checkInTime: c.checkInTime,
-                booth: c.booth?.business?.name ?? c.booth?.name,
+                booth: c.booth ? this.getBoothDisplayName(c.booth) : null,
                 boothName: c.booth?.name,
                 boothType: c.booth?.type ?? BoothType.BOOTH,
             })),
@@ -149,7 +173,6 @@ export class BusinessAdminService {
             .orderBy('hour')
             .getRawMany<{ hour: string; count: string }>();
 
-        // Day distribution by calendar date in the current demo dataset
         const daily = await this.checkinRepo
             .createQueryBuilder('c')
             .select("DATE(c.checkInTime)", 'date')
@@ -160,7 +183,6 @@ export class BusinessAdminService {
             .orderBy('date')
             .getRawMany<{ date: string; count: string; uniqueStudents: string }>();
 
-        // Department distribution from check-ins of this booth
         const departmentDist = await this.checkinRepo
             .createQueryBuilder('c')
             .leftJoin('c.student', 's')
@@ -172,7 +194,13 @@ export class BusinessAdminService {
             .getRawMany<{ department: string; count: string }>();
 
         return {
-            booth: { id: booth.id, name: booth.name, location: booth.location, type: booth.type },
+            booth: {
+                id: booth.id,
+                name: booth.name,
+                displayName: this.getBoothDisplayName(booth),
+                location: booth.location,
+                type: booth.type,
+            },
             stats: {
                 totalVisitors: total,
                 uniqueVisitors: parseInt(uniqueResult?.count ?? '0'),
@@ -229,62 +257,28 @@ export class BusinessAdminService {
         user: AuthenticatedBusinessAdminUser,
         requestedBoothId?: string,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
-        const rows = await this.getWorkshopAttendanceRows(booth.id);
+        return this.getAttendanceReport(user, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
 
-        return {
-            workshop: {
-                id: booth.id,
-                name: booth.name,
-                displayName: booth.business?.name ?? booth.name,
-                location: booth.location,
-                business: booth.business?.name ?? booth.name,
-                type: booth.type,
-            },
-            total: rows.length,
-            items: rows,
-        };
+    async getTotnghiepAttendanceReport(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.getAttendanceReport(user, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
     }
 
     async getWorkshopAttendanceExportData(
         user: AuthenticatedBusinessAdminUser,
         requestedBoothId?: string,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
-        const rows = await this.getWorkshopAttendanceRows(booth.id);
+        return this.getAttendanceExportData(user, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
 
-        return {
-            fileName: this.buildWorkshopAttendanceExcelFileName(booth.name),
-            sheetName: 'Điểm danh hội thảo',
-            workshop: {
-                id: booth.id,
-                name: booth.name,
-                displayName: booth.business?.name ?? booth.name,
-                location: booth.location,
-                type: booth.type,
-            },
-            columns: [
-                { key: 'stt', title: 'STT' },
-                { key: 'workshopName', title: 'Tên hội thảo' },
-                { key: 'fullName', title: 'Họ và tên' },
-                { key: 'studentCode', title: 'MSSV' },
-                { key: 'className', title: 'Lớp' },
-                { key: 'department', title: 'Khoa' },
-                { key: 'phone', title: 'SĐT' },
-                { key: 'checkInTime', title: 'Thời gian điểm danh' },
-            ],
-            rows: rows.map((row) => ({
-                stt: row.stt,
-                workshopName: row.workshopName,
-                fullName: row.fullName,
-                studentCode: row.studentCode,
-                className: row.className ?? '',
-                department: row.department ?? '',
-                phone: row.phone ?? '',
-                checkInTime: row.checkInTime,
-            })),
-            total: rows.length,
-        };
+    async getTotnghiepAttendanceExportData(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.getAttendanceExportData(user, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
     }
 
     async createWorkshopAttendanceManual(
@@ -292,7 +286,123 @@ export class BusinessAdminService {
         dto: CreateWorkshopAttendanceDto,
         requestedBoothId?: string,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
+        return this.createAttendanceManual(user, dto, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
+
+    async createTotnghiepAttendanceManual(
+        user: AuthenticatedBusinessAdminUser,
+        dto: CreateWorkshopAttendanceDto,
+        requestedBoothId?: string,
+    ) {
+        return this.createAttendanceManual(user, dto, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
+    }
+
+    async deleteWorkshopAttendance(
+        user: AuthenticatedBusinessAdminUser,
+        studentCode: string,
+        requestedBoothId?: string,
+    ) {
+        return this.deleteAttendance(user, studentCode, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
+
+    async deleteTotnghiepAttendance(
+        user: AuthenticatedBusinessAdminUser,
+        studentCode: string,
+        requestedBoothId?: string,
+    ) {
+        return this.deleteAttendance(user, studentCode, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
+    }
+
+    async exportWorkshopAttendanceCsv(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.exportAttendanceCsv(user, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
+
+    async exportTotnghiepAttendanceCsv(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.exportAttendanceCsv(user, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
+    }
+
+    async exportWorkshopAttendanceExcel(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.exportAttendanceExcel(user, requestedBoothId, this.getAttendanceConfig(BoothType.WORKSHOP));
+    }
+
+    async exportTotnghiepAttendanceExcel(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId?: string,
+    ) {
+        return this.exportAttendanceExcel(user, requestedBoothId, this.getAttendanceConfig(BoothType.TOTNGHIEP));
+    }
+
+    private async getAttendanceReport(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
+    ) {
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
+        const rows = await this.getAttendanceRows(booth.id);
+
+        return {
+            [config.entityKey]: {
+                id: booth.id,
+                name: booth.name,
+                displayName: this.getBoothDisplayName(booth),
+                location: booth.location,
+                business: booth.business?.name ?? booth.name,
+                type: booth.type,
+            },
+            total: rows.length,
+            items: this.mapAttendanceRows(rows, config.nameField),
+        };
+    }
+
+    private async getAttendanceExportData(
+        user: AuthenticatedBusinessAdminUser,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
+    ) {
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
+        const rows = await this.getAttendanceRows(booth.id);
+
+        return {
+            fileName: this.buildAttendanceExcelFileName(booth.name, config.filePrefix),
+            sheetName: config.sheetName,
+            [config.entityKey]: {
+                id: booth.id,
+                name: booth.name,
+                displayName: this.getBoothDisplayName(booth),
+                location: booth.location,
+                type: booth.type,
+            },
+            columns: [
+                { key: 'stt', title: 'STT' },
+                { key: config.nameField, title: config.nameColumnTitle },
+                { key: 'fullName', title: 'Họ và tên' },
+                { key: 'studentCode', title: 'MSSV' },
+                { key: 'className', title: 'Lớp' },
+                { key: 'department', title: 'Khoa' },
+                { key: 'phone', title: 'SĐT' },
+                { key: 'checkInTime', title: 'Thời gian điểm danh' },
+            ],
+            rows: this.mapAttendanceRows(rows, config.nameField),
+            total: rows.length,
+        };
+    }
+
+    private async createAttendanceManual(
+        user: AuthenticatedBusinessAdminUser,
+        dto: CreateWorkshopAttendanceDto,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
+    ) {
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
         const existingStudent = await this.studentRepo.findOne({
             where: { studentCode: dto.studentCode.trim() },
         });
@@ -324,7 +434,7 @@ export class BusinessAdminService {
         });
         if (duplicate) {
             throw new BadRequestException(
-                `Sinh viên ${student.studentCode} đã có trong danh sách điểm danh của hội thảo này`,
+                `Sinh viên ${student.studentCode} đã có trong danh sách điểm danh của ${config.entityLabelLower} này`,
             );
         }
 
@@ -343,29 +453,30 @@ export class BusinessAdminService {
             });
         }
 
-        const refreshedRows = await this.getWorkshopAttendanceRows(booth.id);
+        const refreshedRows = await this.getAttendanceRows(booth.id);
         const createdRow = refreshedRows.find(
             (row) => row.studentCode === student.studentCode,
         );
 
         return {
-            message: 'Đã thêm sinh viên vào danh sách điểm danh hội thảo',
-            workshop: {
+            message: `Đã thêm sinh viên vào danh sách điểm danh ${config.entityLabelLower}`,
+            [config.entityKey]: {
                 id: booth.id,
                 name: booth.name,
-                displayName: booth.business?.name ?? booth.name,
+                displayName: this.getBoothDisplayName(booth),
                 type: booth.type,
             },
-            item: createdRow ?? null,
+            item: createdRow ? this.mapAttendanceRow(createdRow, config.nameField) : null,
         };
     }
 
-    async deleteWorkshopAttendance(
+    private async deleteAttendance(
         user: AuthenticatedBusinessAdminUser,
         studentCode: string,
-        requestedBoothId?: string,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
         const normalizedStudentCode = studentCode.trim();
         const student = await this.studentRepo.findOne({
             where: { studentCode: normalizedStudentCode },
@@ -381,35 +492,36 @@ export class BusinessAdminService {
         });
         if (checkins.length === 0) {
             throw new NotFoundException(
-                `Sinh viên ${normalizedStudentCode} không có trong danh sách điểm danh của hội thảo này`,
+                `Sinh viên ${normalizedStudentCode} không có trong danh sách điểm danh của ${config.entityLabelLower} này`,
             );
         }
 
         await this.checkinRepo.remove(checkins);
 
         return {
-            message: 'Đã xoá sinh viên khỏi danh sách điểm danh hội thảo',
+            message: `Đã xoá sinh viên khỏi danh sách điểm danh ${config.entityLabelLower}`,
             deletedStudentCode: normalizedStudentCode,
             deletedCheckins: checkins.length,
-            workshop: {
+            [config.entityKey]: {
                 id: booth.id,
                 name: booth.name,
-                displayName: booth.business?.name ?? booth.name,
+                displayName: this.getBoothDisplayName(booth),
                 type: booth.type,
             },
         };
     }
 
-    async exportWorkshopAttendanceCsv(
+    private async exportAttendanceCsv(
         user: AuthenticatedBusinessAdminUser,
-        requestedBoothId?: string,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
-        const rows = await this.getWorkshopAttendanceRows(booth.id);
-        const headers = ['STT', 'Tên hội thảo', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
+        const rows = await this.getAttendanceRows(booth.id);
+        const headers = ['STT', config.nameColumnTitle, 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
         const csvRows = rows.map((row) => [
             row.stt.toString(),
-            row.workshopName,
+            row.unitName,
             row.fullName,
             row.studentCode,
             row.className ?? '',
@@ -425,22 +537,23 @@ export class BusinessAdminService {
             .join('\n');
 
         return {
-            fileName: this.buildWorkshopAttendanceFileName(booth.name),
+            fileName: this.buildAttendanceFileName(booth.name, config.filePrefix),
             total: rows.length,
             csv,
         };
     }
 
-    async exportWorkshopAttendanceExcel(
+    private async exportAttendanceExcel(
         user: AuthenticatedBusinessAdminUser,
-        requestedBoothId?: string,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
     ) {
-        const booth = await this.resolveWorkshopBooth(user, requestedBoothId);
-        const rows = await this.getWorkshopAttendanceRows(booth.id);
-        const headers = ['STT', 'Tên hội thảo', 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
+        const booth = await this.resolveManagedBooth(user, requestedBoothId, config);
+        const rows = await this.getAttendanceRows(booth.id);
+        const headers = ['STT', config.nameColumnTitle, 'Họ và tên', 'MSSV', 'Lớp', 'Khoa', 'SĐT', 'Thời gian điểm danh'];
         const bodyRows = rows.map((row) => [
             row.stt.toString(),
-            row.workshopName,
+            row.unitName,
             row.fullName,
             row.studentCode,
             row.className ?? '',
@@ -468,7 +581,7 @@ export class BusinessAdminService {
             'xmlns:o="urn:schemas-microsoft-com:office:office" ' +
             'xmlns:x="urn:schemas-microsoft-com:office:excel" ' +
             'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
-            '<Worksheet ss:Name="Điểm danh hội thảo">' +
+            `<Worksheet ss:Name="${config.sheetName}">` +
             '<Table>' +
             xmlRows +
             '</Table>' +
@@ -476,15 +589,16 @@ export class BusinessAdminService {
             '</Workbook>';
 
         return {
-            fileName: this.buildWorkshopAttendanceExcelFileName(booth.name),
+            fileName: this.buildAttendanceExcelFileName(booth.name, config.filePrefix),
             total: rows.length,
             xml,
         };
     }
 
-    private async resolveWorkshopBooth(
+    private async resolveManagedBooth(
         user: AuthenticatedBusinessAdminUser,
-        requestedBoothId?: string,
+        requestedBoothId: string | undefined,
+        config: AttendanceConfig,
     ) {
         const boothId =
             user.role === UserRole.SYSTEM_ADMIN || user.role === UserRole.SCHOOL_ADMIN
@@ -493,7 +607,7 @@ export class BusinessAdminService {
 
         if (!boothId) {
             throw new ForbiddenException(
-                'Tài khoản này chưa được gán workshop để xem báo cáo',
+                `Tài khoản này chưa được gán ${config.entityLabelLower} để xem báo cáo`,
             );
         }
 
@@ -501,24 +615,24 @@ export class BusinessAdminService {
             where: { id: boothId },
             relations: ['business'],
         });
-        if (!booth) throw new NotFoundException('Workshop không tồn tại');
-        if (booth.type !== BoothType.WORKSHOP) {
+        if (!booth) throw new NotFoundException(`${config.entityLabel} không tồn tại`);
+        if (booth.type !== config.boothType) {
             throw new ForbiddenException(
-                'Tài khoản này không thuộc workshop nên không thể xuất báo cáo workshop',
+                `Tài khoản này không thuộc ${config.entityLabelLower} nên không thể xuất báo cáo ${config.entityLabelLower}`,
             );
         }
 
         return booth;
     }
 
-    private async getWorkshopAttendanceRows(
+    private async getAttendanceRows(
         boothId: string,
-    ): Promise<WorkshopAttendanceRow[]> {
+    ): Promise<AttendanceRow[]> {
         const booth = await this.boothRepo.findOne({
             where: { id: boothId },
             relations: ['business'],
         });
-        if (!booth) throw new NotFoundException('Workshop không tồn tại');
+        if (!booth) throw new NotFoundException('Không tìm thấy đơn vị điểm danh');
 
         const checkins = await this.checkinRepo.find({
             where: { boothId },
@@ -527,7 +641,7 @@ export class BusinessAdminService {
         });
 
         const seenStudentIds = new Set<string>();
-        const rows: WorkshopAttendanceRow[] = [];
+        const rows: AttendanceRow[] = [];
 
         for (const checkin of checkins) {
             if (!checkin.student || seenStudentIds.has(checkin.studentId)) continue;
@@ -536,7 +650,7 @@ export class BusinessAdminService {
             rows.push({
                 stt: rows.length + 1,
                 studentId: checkin.student.id,
-                workshopName: booth.business?.name ?? booth.name,
+                unitName: booth.business?.name ?? booth.name,
                 fullName: checkin.student.fullName,
                 studentCode: checkin.student.studentCode,
                 className: checkin.student.className ?? null,
@@ -549,19 +663,84 @@ export class BusinessAdminService {
         return rows;
     }
 
+    private mapAttendanceRows(rows: AttendanceRow[], nameField: AttendanceConfig['nameField']) {
+        return rows.map((row) => this.mapAttendanceRow(row, nameField));
+    }
+
+    private mapAttendanceRow(row: AttendanceRow, nameField: AttendanceConfig['nameField']) {
+        return {
+            stt: row.stt,
+            studentId: row.studentId,
+            [nameField]: row.unitName,
+            fullName: row.fullName,
+            studentCode: row.studentCode,
+            className: row.className,
+            department: row.department,
+            phone: row.phone,
+            checkInTime: row.checkInTime,
+        };
+    }
+
+    private getAttendanceConfig(boothType: BoothType): AttendanceConfig {
+        if (boothType === BoothType.TOTNGHIEP) {
+            return {
+                boothType,
+                entityKey: 'totnghiep',
+                entityLabel: 'Totnghiep',
+                entityLabelLower: 'Totnghiep',
+                listTitle: 'Điểm danh Totnghiep',
+                sheetName: 'Điểm danh Totnghiep',
+                filePrefix: 'totnghiep-attendance',
+                nameField: 'totnghiepName',
+                nameColumnTitle: 'Tên Totnghiep',
+            };
+        }
+
+        return {
+            boothType: BoothType.WORKSHOP,
+            entityKey: 'workshop',
+            entityLabel: 'Workshop',
+            entityLabelLower: 'hội thảo',
+            listTitle: 'Điểm danh hội thảo',
+            sheetName: 'Điểm danh hội thảo',
+            filePrefix: 'workshop-attendance',
+            nameField: 'workshopName',
+            nameColumnTitle: 'Tên hội thảo',
+        };
+    }
+
+    private getBoothTypeStatsKey(type: BoothType) {
+        switch (type) {
+            case BoothType.WORKSHOP:
+                return 'workshop' as const;
+            case BoothType.TOTNGHIEP:
+                return 'totnghiep' as const;
+            default:
+                return 'booth' as const;
+        }
+    }
+
+    private getBoothDisplayName(booth: Pick<Booth, 'name' | 'type'> & { business?: { name: string } | null }) {
+        if (booth.type === BoothType.BOOTH) {
+            return booth.name;
+        }
+
+        return booth.business?.name ?? booth.name;
+    }
+
     private escapeCsvValue(value: string) {
         const normalized = value.replace(/"/g, '""');
         return `"${normalized}"`;
     }
 
-    private buildWorkshopAttendanceFileName(workshopName: string) {
-        const slug = this.slugify(workshopName);
-        return `workshop-attendance-${slug || 'report'}.csv`;
+    private buildAttendanceFileName(entityName: string, prefix: string) {
+        const slug = this.slugify(entityName);
+        return `${prefix}-${slug || 'report'}.csv`;
     }
 
-    private buildWorkshopAttendanceExcelFileName(workshopName: string) {
-        const slug = this.slugify(workshopName);
-        return `workshop-attendance-${slug || 'report'}.xls`;
+    private buildAttendanceExcelFileName(entityName: string, prefix: string) {
+        const slug = this.slugify(entityName);
+        return `${prefix}-${slug || 'report'}.xls`;
     }
 
     private slugify(value: string) {

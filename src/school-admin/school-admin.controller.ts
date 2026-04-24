@@ -7,8 +7,10 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../entities/user.entity';
 import { SchoolAdminService } from './school-admin.service';
 import { CreateWorkshopAccountDto, UpdateWorkshopAccountDto } from './dto/workshop-management.dto';
+import { CreateTotnghiepAccountDto, UpdateTotnghiepAccountDto } from './dto/totnghiep-management.dto';
 import { CreateBusinessAccountDto } from './dto/business-account.dto';
 import { CreateWorkshopDto } from './dto/create-workshop.dto';
+import { CreateTotnghiepDto } from './dto/create-totnghiep.dto';
 
 @ApiTags('school-admin')
 @ApiBearerAuth('access-token')
@@ -92,6 +94,40 @@ export class SchoolAdminController {
         @Body() dto: UpdateWorkshopAccountDto,
     ) {
         return this.schoolAdminService.updateWorkshopAccount(boothId, dto);
+    }
+
+    @ApiOperation({ summary: 'Danh sách tất cả Totnghiep kèm trạng thái tài khoản' })
+    @Get('totnghieps')
+    getTotnghieps() { return this.schoolAdminService.getTotnghieps(); }
+
+    @ApiOperation({ summary: 'Chi tiết thống kê của một Totnghiep' })
+    @Get('totnghieps/:boothId')
+    getTotnghiepDetail(@Param('boothId', ParseUUIDPipe) boothId: string) {
+        return this.schoolAdminService.getTotnghiepDetail(boothId);
+    }
+
+    @ApiOperation({ summary: 'Tạo Totnghiep mới (Business + Booth)' })
+    @Post('totnghieps')
+    createTotnghiep(@Body() dto: CreateTotnghiepDto) {
+        return this.schoolAdminService.createTotnghiep(dto);
+    }
+
+    @ApiOperation({ summary: 'Tạo tài khoản cho Totnghiep' })
+    @Post('totnghieps/:boothId/account')
+    createTotnghiepAccount(
+        @Param('boothId', ParseUUIDPipe) boothId: string,
+        @Body() dto: CreateTotnghiepAccountDto,
+    ) {
+        return this.schoolAdminService.createTotnghiepAccount(boothId, dto);
+    }
+
+    @ApiOperation({ summary: 'Cập nhật tài khoản cho Totnghiep (đổi email, password)' })
+    @Patch('totnghieps/:boothId/account')
+    updateTotnghiepAccount(
+        @Param('boothId', ParseUUIDPipe) boothId: string,
+        @Body() dto: UpdateTotnghiepAccountDto,
+    ) {
+        return this.schoolAdminService.updateTotnghiepAccount(boothId, dto);
     }
 
     @ApiOperation({ summary: 'Danh sách giải thưởng kèm sinh viên đủ điều kiện' })

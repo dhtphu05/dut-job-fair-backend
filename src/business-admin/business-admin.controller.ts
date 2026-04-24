@@ -175,4 +175,133 @@ export class BusinessAdminController {
             boothId,
         );
     }
+
+    @ApiOperation({
+        summary: 'Danh sách điểm danh dành riêng cho account Totnghiep',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xem báo cáo của một Totnghiep cụ thể',
+    })
+    @Get('totnghiep-attendance')
+    getTotnghiepAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.getTotnghiepAttendanceReport(req.user, boothId);
+    }
+
+    @ApiOperation({
+        summary: 'Dữ liệu điểm danh Totnghiep cho frontend tự xuất file',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn lấy dữ liệu của một Totnghiep cụ thể',
+    })
+    @Get('totnghiep-attendance/export-data')
+    getTotnghiepAttendanceExportData(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.getTotnghiepAttendanceExportData(
+            req.user,
+            boothId,
+        );
+    }
+
+    @ApiOperation({
+        summary: 'Xuất CSV điểm danh dành riêng cho account Totnghiep',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xuất báo cáo của một Totnghiep cụ thể',
+    })
+    @Get('totnghiep-attendance/export')
+    async exportTotnghiepAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Res() res: Response,
+    ) {
+        const result = await this.businessAdminService.exportTotnghiepAttendanceCsv(
+            req.user,
+            boothId,
+        );
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${result.fileName}"`,
+        );
+        res.status(200).send(`\uFEFF${result.csv}`);
+    }
+
+    @ApiOperation({
+        summary: 'Xuất Excel điểm danh dành riêng cho account Totnghiep',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn xuất báo cáo của một Totnghiep cụ thể',
+    })
+    @Get('totnghiep-attendance/export/excel')
+    async exportTotnghiepAttendanceExcel(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Res() res: Response,
+    ) {
+        const result = await this.businessAdminService.exportTotnghiepAttendanceExcel(
+            req.user,
+            boothId,
+        );
+        res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${result.fileName}"`,
+        );
+        res.status(200).send(`\uFEFF${result.xml}`);
+    }
+
+    @ApiOperation({
+        summary: 'Thêm thủ công một sinh viên vào danh sách điểm danh Totnghiep',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn thao tác trên một Totnghiep cụ thể',
+    })
+    @Post('totnghiep-attendance/manual')
+    createTotnghiepAttendanceManual(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Query('boothId') boothId: string | undefined,
+        @Body() dto: CreateWorkshopAttendanceDto,
+    ) {
+        return this.businessAdminService.createTotnghiepAttendanceManual(
+            req.user,
+            dto,
+            boothId,
+        );
+    }
+
+    @ApiOperation({
+        summary: 'Xoá một sinh viên khỏi danh sách điểm danh Totnghiep',
+    })
+    @ApiQuery({
+        name: 'boothId',
+        required: false,
+        description: 'Chỉ dùng cho system admin khi muốn thao tác trên một Totnghiep cụ thể',
+    })
+    @Delete('totnghiep-attendance/:studentCode')
+    deleteTotnghiepAttendance(
+        @Request() req: { user: AuthenticatedBusinessAdminUser },
+        @Param('studentCode') studentCode: string,
+        @Query('boothId') boothId?: string,
+    ) {
+        return this.businessAdminService.deleteTotnghiepAttendance(
+            req.user,
+            studentCode,
+            boothId,
+        );
+    }
 }
