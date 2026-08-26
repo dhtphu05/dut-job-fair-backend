@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class ScanDto {
     @ApiProperty({
@@ -36,10 +36,13 @@ export class QrScanDto {
     @IsNotEmpty()
     ma_so_sinh_vien: string;
 
-    @ApiProperty({ example: '23T_DT4', description: 'Lớp học' })
+    @ApiPropertyOptional({
+        example: '23T_DT4',
+        description: 'Lớp học. Có thể chưa có trong QR của sinh viên.',
+    })
+    @IsOptional()
     @IsString()
-    @IsNotEmpty()
-    lop: string;
+    lop?: string;
 
     @ApiPropertyOptional({
         example: 'Khoa Công nghệ Thông tin',
@@ -51,13 +54,22 @@ export class QrScanDto {
 
     @ApiPropertyOptional({ example: 'user@gmail.com' })
     @IsOptional()
-    @IsEmail()
+    @IsString()
     email?: string;
 
     @ApiPropertyOptional({ example: '0385544281' })
     @IsOptional()
     @IsString()
     phone?: string;
+
+    @ApiPropertyOptional({
+        example: 'TN2026_dot_2',
+        description: 'Mã đợt tốt nghiệp được mã hoá trong QR',
+    })
+    @IsOptional()
+    @IsString()
+    @MaxLength(100)
+    dot_tot_nghiep?: string;
 
     @ApiProperty({ example: 'uuid-of-booth', description: 'UUID của gian hàng doanh nghiệp' })
     @IsUUID('4')

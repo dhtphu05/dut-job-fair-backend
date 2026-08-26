@@ -47,6 +47,7 @@ export class CheckinService {
             studentId: dto.studentId,
             boothId: dto.boothId,
             status: 'active',
+            graduationBatch: student.graduationBatch,
         });
 
         const saved = await this.checkinRepo.save(checkin);

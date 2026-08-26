@@ -63,6 +63,10 @@ public/uploads/
 *.csv
 *.xlsx
 
+# ── Heavy output folders (QR codes & letters - DO NOT commit) ──────────────────
+qr-output/
+letter-output/
+
 # ── SSL certs ──────────────────────────────────────────────────────────────────
 *.pem
 *.key
@@ -72,6 +76,13 @@ public/uploads/
 .cache/
 tmp/
 .temp/
+temp/
 
+# ── Windows ────────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Environment variables (catch-all, NEVER commit) ────────────────────────────
 .env*
-
+!.env.example

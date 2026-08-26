@@ -84,6 +84,26 @@ npm run start:prod
 - `npm run test:e2e` - Run end-to-end tests
 - `npm run test:cov` - Run tests with coverage
 - `npm run seed` - Seed database data
+- `npm run seed:shared-accounts` - Đồng bộ các tài khoản cố định cho local/production
+
+### Đồng bộ tài khoản local và production
+
+Sao chép `.env.example` thành `.env`, sau đó đặt cùng giá trị cho
+`SEED_ADMIN_PASSWORD` và `SEED_BUSINESS_PASSWORD` ở local lẫn môi trường seed
+trên production. Chạy lệnh sau ở cả hai môi trường:
+
+```bash
+npm run seed:shared-accounts
+```
+
+Script không xóa dữ liệu. Nó tạo hoặc cập nhật ba tài khoản nội bộ
+(`checkin@admin.com`, `system@example.com`, `scanner@example.com`) và toàn bộ
+tài khoản doanh nghiệp/hội thảo với email cố định. Các hội thảo dùng email theo
+mã QR, ví dụ `workshop-01@jobfair`. Khi chạy lại, mật khẩu của các tài khoản
+này sẽ được đặt lại theo hai biến môi trường trên.
+
+Trong Docker production, dùng `npm run seed:shared-accounts:prod` (hoặc chạy
+trực tiếp `node dist/scripts/seed-shared-accounts.js`).
 
 ## API Docs
 

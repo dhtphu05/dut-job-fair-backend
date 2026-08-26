@@ -25,7 +25,7 @@ export class Student {
     @Column({ name: 'full_name', length: 255 })
     fullName: string;
 
-    @Column({ type: 'varchar', length: 255, unique: true, nullable: true })
+    @Column({ type: 'varchar', length: 255, nullable: true })
     email: string | null;
 
     @Column({ type: 'varchar', length: 20, nullable: true })
@@ -45,6 +45,11 @@ export class Student {
 
     @Column({ type: 'float', nullable: true })
     gpa: number | null;
+
+    // Mã đợt tốt nghiệp lấy từ QR, ví dụ: TN2026_dot_2.
+    // Không dùng lớp hoặc số điện thoại làm mã đợt để tránh làm sai dữ liệu hồ sơ.
+    @Column({ name: 'dot_tot_nghiep', type: 'varchar', length: 100, nullable: true })
+    graduationBatch: string | null;
 
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;

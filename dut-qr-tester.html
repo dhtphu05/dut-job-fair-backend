@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DUT Job Fair 2026 - QR Code Generator & Local Tester</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --error: #dc2626;
+      --warn: #ea580c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; }
+    .container { max-width: 1180px; margin: 0 auto; }
+    header { margin-bottom: 20px; text-align: center; }
+    h1 { font-size: 26px; color: var(--primary); margin-bottom: 6px; }
+    p.desc { color: var(--muted); font-size: 14px; }
+
+    /* Tabs */
+    .tabs-nav { display: flex; gap: 8px; justify-content: center; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+    .tab-btn { background: none; border: none; padding: 8px 18px; font-size: 15px; font-weight: 600; color: var(--muted); cursor: pointer; border-radius: 8px; transition: 0.2s; }
+    .tab-btn.active { background: #dbeafe; color: var(--primary); }
+    .tab-btn:hover:not(.active) { background: #f1f5f9; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    h2 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
+    .form-group { margin-bottom: 14px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; color: #334155; }
+    input, select, textarea { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; transition: 0.2s; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: #334155; }
+    .btn-outline:hover { background: #f1f5f9; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-success:hover { background: #15803d; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .qr-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; border: 2px dashed var(--border); border-radius: 12px; background: #fafafa; min-height: 260px; }
+    #qrcode { padding: 12px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    #qrcode img { display: block; margin: 0 auto; }
+    .qr-payload-box { margin-top: 14px; width: 100%; }
+    .qr-payload-box textarea { font-family: monospace; font-size: 12px; background: #f8fafc; resize: vertical; }
+    .result-box { margin-top: 16px; padding: 12px; border-radius: 8px; font-size: 13px; font-family: monospace; max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .result-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; }
+    .result-duplicate { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .result-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+
+    /* Batch Grid */
+    .batch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; margin-top: 20px; }
+    .student-badge-card { background: white; border: 2px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.04); page-break-inside: avoid; }
+    .student-badge-card h3 { font-size: 15px; color: var(--primary); margin-top: 8px; font-weight: 700; }
+    .student-badge-card p { font-size: 12px; color: var(--muted); margin: 2px 0; }
+    .student-badge-card .badge-qr { display: flex; justify-content: center; margin: 10px 0; }
+    .student-badge-card .mssv-tag { display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; color: #334155; }
+
+    @media print {
+      body { background: white; padding: 0; }
+      header, .tabs-nav, .no-print { display: none !important; }
+      .batch-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .student-badge-card { border: 1px solid #000; break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>DUT Job Fair 2026 - Bộ Tạo QR & Test Check-in</h1>
+      <p class="desc">Tạo mã QR sinh viên (Đơn lẻ hoặc Hàng loạt) chuẩn DUT, hiển thị hình ảnh QR để Camera quét và gọi API check-in local.</p>
+    </header>
+
+    <div class="tabs-nav no-print">
+      <button class="tab-btn active" onclick="switchTab('single')">🎯 Tạo QR Đơn Lẻ & Test API</button>
+      <button class="tab-btn" onclick="switchTab('batch')">📦 Tạo QR Hàng Loạt (Batch Generator)</button>
+    </div>
+
+    <!-- TAB 1: SINGLE QR -->
+    <div id="tab-single" class="tab-pane active">
+      <div class="grid">
+        <!-- Left: Form Sinh Viên & Login -->
+        <div class="card">
+          <h2>
+            <span>1. Thông tin Sinh viên</span>
+            <button type="button" class="btn btn-outline" style="font-size: 12px; padding: 4px 10px;" onclick="randomStudent()">🎲 Ngẫu nhiên</button>
+          </h2>
+
+          <div class="form-group">
+            <label>Họ và tên</label>
+            <input type="text" id="ho_ten" value="Nguyễn Văn A" oninput="updateQr()">
+          </div>
+
+          <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label>Mã số sinh viên (MSSV)</label>
+              <input type="text" id="ma_so_sinh_vien" value="102230001" oninput="updateQr()">
+            </div>
+            <div>
+              <label>Lớp sinh hoạt</label>
+              <input type="text" id="lop" value="22TCLC_DT1" oninput="updateQr()">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Khoa / Ngành</label>
+            <input type="text" id="khoa" value="Khoa Công nghệ Thông tin" oninput="updateQr()">
+          </div>
+
+          <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label>Email</label>
+              <input type="email" id="email" value="102230001@sv.dut.edu.vn" oninput="updateQr()">
+            </div>
+            <div>
+              <label>Số điện thoại</label>
+              <input type="text" id="phone" value="0905123456" oninput="updateQr()">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Định dạng mã QR</label>
+            <select id="qr_format" onchange="updateQr()">
+              <option value="json">JSON chuẩn DUT (Được Scanner App ưu tiên)</option>
+              <option value="uri_json">JSON URL-Encoded (Tương thích link/badge)</option>
+              <option value="code">Mã sinh viên thuần (MSSV text)</option>
+            </select>
+          </div>
+
+          <hr style="margin: 18px 0; border: none; border-top: 1px solid var(--border);">
+
+          <h2><span>2. Đăng nhập Booth Admin để Test API</span></h2>
+          <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label>Email tài khoản</label>
+              <input type="text" id="login_email" value="testdot1@tn">
+            </div>
+            <div>
+              <label>Mật khẩu</label>
+              <input type="password" id="login_password" value="totnghiep2026">
+            </div>
+          </div>
+
+          <div class="btn-group">
+            <button type="button" class="btn btn-outline" onclick="setAccount('testdot1@tn', 'totnghiep2026')">🏢 Totnghiep (testdot1@tn)</button>
+            <button type="button" class="btn btn-outline" onclick="setAccount('dot1@tn', 'totnghiep2026')">🎓 Totnghiep (dot1@tn)</button>
+            <button type="button" class="btn btn-outline" onclick="setAccount('checkin@admin.com', 'password123')">🏫 School Admin</button>
+          </div>
+
+          <div class="btn-group" style="margin-top: 14px;">
+            <button type="button" class="btn btn-primary" onclick="loginAndGetBooth()">🔑 Đăng nhập lấy Token & Booth ID</button>
+            <button type="button" class="btn btn-success" onclick="callScanApi()">⚡ Gửi Check-in Ngay (API Local)</button>
+          </div>
+        </div>
+
+        <!-- Right: QR Preview & Test Result -->
+        <div class="card">
+          <h2><span>Mã QR Code Preview</span></h2>
+          <div class="qr-container">
+            <div id="qrcode"></div>
+            <p style="margin-top: 12px; font-size: 12px; color: var(--muted); text-align: center;">
+              Dùng Camera của trang <a href="http://localhost:3001/scanner" target="_blank" style="color: var(--primary); font-weight: 600;">/scanner</a> quét mã này để test.
+            </p>
+          </div>
+
+          <div class="qr-payload-box">
+            <label>Nội dung nhúng trong mã QR (Payload Text):</label>
+            <textarea id="raw_payload" rows="3" readonly></textarea>
+          </div>
+
+          <h2 style="margin-top: 16px;"><span>Kết quả gọi API Check-in</span></h2>
+          <div id="api_result" class="result-box" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: BATCH QR -->
+    <div id="tab-batch" class="tab-pane">
+      <div class="card no-print">
+        <h2><span>Nhập danh sách sinh viên để sinh hàng loạt</span></h2>
+        <p style="font-size: 13px; color: var(--muted); margin-bottom: 12px;">
+          Mỗi dòng 1 sinh viên theo định dạng: <code>Họ và tên, MSSV, Lớp, Khoa, Email, SĐT</code> (hoặc dùng nút tạo mẫu nhanh).
+        </p>
+
+        <textarea id="batch_input" rows="6" placeholder="Nguyễn Văn A, 102230001, 22TCLC1, Khoa Công nghệ Thông tin, 102230001@sv.dut.edu.vn, 0905111111&#10;Trần Thị B, 102230002, 22TCLC2, Khoa Công nghệ Thông tin, 102230002@sv.dut.edu.vn, 0905222222"></textarea>
+
+        <div class="btn-group" style="margin-top: 12px;">
+          <button type="button" class="btn btn-primary" onclick="generateBatchFromInput()">🚀 Sinh mã QR Hàng Loạt</button>
+          <button type="button" class="btn btn-outline" onclick="generateSampleBatch(6)">🎲 Tạo Mẫu 6 Sinh Viên</button>
+          <button type="button" class="btn btn-outline" onclick="generateSampleBatch(18)">🎲 Tạo Mẫu 18 Sinh Viên</button>
+          <button type="button" class="btn btn-success" onclick="window.print()">🖨️ In / Xuất PDF Thẻ QR</button>
+        </div>
+      </div>
+
+      <div id="batch_output" class="batch-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    let qrcodeObj = null;
+    let currentAuthToken = '';
+    let currentBoothId = '';
+
+    const firstNames = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ'];
+    const middleNames = ['Văn', 'Thị', 'Đức', 'Minh', 'Quốc', 'Hữu', 'Anh', 'Thanh', 'Bảo', 'Gia'];
+    const lastNames = ['An', 'Bình', 'Cường', 'Dũng', 'Hải', 'Hoa', 'Hùng', 'Khoa', 'Linh', 'Long', 'Nam', 'Phong', 'Quân', 'Sơn', 'Thành', 'Tuấn', 'Vinh', 'Đạt'];
+    const depts = [
+      { name: 'Khoa Công nghệ Thông tin', classPrefix: '22TCLC_DT', code: '10223' },
+      { name: 'Khoa Điện tử Viễn thông', classPrefix: '22DT', code: '10623' },
+      { name: 'Khoa Cơ khí', classPrefix: '22CK', code: '10123' },
+      { name: 'Khoa Điện', classPrefix: '22D', code: '10523' },
+      { name: 'Khoa Quản lý Dự án', classPrefix: '22QLD', code: '10723' }
+    ];
+
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+    function createRandomStudentObj(index = 0) {
+      const fn = pick(firstNames);
+      const mn = pick(middleNames);
+      const ln = pick(lastNames);
+      const dept = pick(depts);
+      const randNum = String(1000 + (index * 7) + Math.floor(Math.random() * 8000)).slice(-4);
+      const mssv = `${dept.code}${randNum}`;
+      return {
+        ho_ten: `${fn} ${mn} ${ln}`,
+        ma_so_sinh_vien: mssv,
+        lop: `${dept.classPrefix}${Math.floor(1 + Math.random() * 3)}`,
+        khoa: dept.name,
+        email: `${mssv}@sv.dut.edu.vn`,
+        phone: `0905${Math.floor(100000 + Math.random() * 900000)}`
+      };
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+      if (tabId === 'single') {
+        document.querySelectorAll('.tab-btn')[0].classList.add('active');
+        document.getElementById('tab-single').classList.add('active');
+      } else {
+        document.querySelectorAll('.tab-btn')[1].classList.add('active');
+        document.getElementById('tab-batch').classList.add('active');
+        if (!document.getElementById('batch_output').hasChildNodes()) {
+          generateSampleBatch(6);
+        }
+      }
+    }
+
+    function randomStudent() {
+      const s = createRandomStudentObj();
+      document.getElementById('ho_ten').value = s.ho_ten;
+      document.getElementById('ma_so_sinh_vien').value = s.ma_so_sinh_vien;
+      document.getElementById('lop').value = s.lop;
+      document.getElementById('khoa').value = s.khoa;
+      document.getElementById('email').value = s.email;
+      document.getElementById('phone').value = s.phone;
+      updateQr();
+    }
+
+    function setAccount(email, password) {
+      document.getElementById('login_email').value = email;
+      document.getElementById('login_password').value = password;
+    }
+
+    function getStudentPayload() {
+      return {
+        ho_ten: document.getElementById('ho_ten').value.trim(),
+        ma_so_sinh_vien: document.getElementById('ma_so_sinh_vien').value.trim(),
+        lop: document.getElementById('lop').value.trim(),
+        khoa: document.getElementById('khoa').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        phone: document.getElementById('phone').value.trim()
+      };
+    }
+
+    function getQrText() {
+      const format = document.getElementById('qr_format').value;
+      const payload = getStudentPayload();
+      if (format === 'code') return payload.ma_so_sinh_vien;
+      const jsonStr = JSON.stringify(payload);
+      if (format === 'uri_json') return encodeURIComponent(jsonStr);
+      return jsonStr;
+    }
+
+    function updateQr() {
+      const text = getQrText();
+      document.getElementById('raw_payload').value = text;
+      const container = document.getElementById('qrcode');
+      container.innerHTML = '';
+      qrcodeObj = new QRCode(container, {
+        text: text,
+        width: 190,
+        height: 190,
+        colorDark: "#0f172a",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
+
+    async function loginAndGetBooth() {
+      const email = document.getElementById('login_email').value.trim();
+      const password = document.getElementById('login_password').value;
+      const resBox = document.getElementById('api_result');
+      resBox.style.display = 'block';
+      resBox.className = 'result-box';
+      resBox.textContent = 'Đang đăng nhập...';
+
+      try {
+        const res = await fetch('http://localhost:3000/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const json = await res.json();
+        if (res.ok && json.data?.accessToken) {
+          currentAuthToken = json.data.accessToken;
+          currentBoothId = json.data.boothId || '';
+          resBox.className = 'result-box result-success';
+          resBox.textContent = `✅ Đăng nhập thành công!\nUser: ${json.data.name} (${json.data.role})\nBooth ID: ${currentBoothId || 'None (Admin)'}\nToken: ${currentAuthToken.slice(0, 35)}...`;
+        } else {
+          resBox.className = 'result-box result-error';
+          resBox.textContent = `❌ Lỗi đăng nhập: ${json.message || JSON.stringify(json)}`;
+        }
+      } catch (err) {
+        resBox.className = 'result-box result-error';
+        resBox.textContent = `❌ Lỗi kết nối backend: ${err.message}. Đảm bảo backend đang chạy ở http://localhost:3000`;
+      }
+    }
+
+    async function callScanApi() {
+      if (!currentAuthToken) {
+        await loginAndGetBooth();
+        if (!currentAuthToken) return;
+      }
+      const resBox = document.getElementById('api_result');
+      resBox.style.display = 'block';
+      resBox.textContent = 'Đang gửi check-in...';
+
+      const format = document.getElementById('qr_format').value;
+      const student = getStudentPayload();
+      let url = 'http://localhost:3000/api/scanner/scan-qr';
+      let body = { ...student, boothId: currentBoothId };
+
+      if (format === 'code') {
+        url = 'http://localhost:3000/api/scanner/scan';
+        body = { visitorCode: student.ma_so_sinh_vien, boothId: currentBoothId };
+      }
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${currentAuthToken}`
+          },
+          body: JSON.stringify(body)
+        });
+        const json = await res.json();
+        const data = json.data || json;
+
+        if (data.status === 'success') {
+          resBox.className = 'result-box result-success';
+          resBox.textContent = `✅ CHECK-IN THÀNH CÔNG!\n\n${JSON.stringify(json, null, 2)}`;
+        } else if (data.status === 'duplicate') {
+          resBox.className = 'result-box result-duplicate';
+          resBox.textContent = `⚠️ ĐÃ CHECK-IN TRƯỚC ĐÓ (DUPLICATE):\n\n${JSON.stringify(json, null, 2)}`;
+        } else {
+          resBox.className = 'result-box result-error';
+          resBox.textContent = `❌ CHECK-IN THẤT BẠI:\n\n${JSON.stringify(json, null, 2)}`;
+        }
+      } catch (err) {
+        resBox.className = 'result-box result-error';
+        resBox.textContent = `❌ Lỗi khi gọi API: ${err.message}`;
+      }
+    }
+
+    /* Batch Generation */
+    function renderBatchCards(students) {
+      const container = document.getElementById('batch_output');
+      container.innerHTML = '';
+      students.forEach((s, idx) => {
+        const card = document.createElement('div');
+        card.className = 'student-badge-card';
+
+        const title = document.createElement('h3');
+        title.textContent = s.ho_ten;
+
+        const mssvTag = document.createElement('span');
+        mssvTag.className = 'mssv-tag';
+        mssvTag.textContent = s.ma_so_sinh_vien;
+
+        const pClass = document.createElement('p');
+        pClass.textContent = `Lớp: ${s.lop}`;
+
+        const pDept = document.createElement('p');
+        pDept.textContent = s.khoa;
+
+        const qrDiv = document.createElement('div');
+        qrDiv.className = 'badge-qr';
+        const qrBoxId = `batch_qr_${idx}`;
+        qrDiv.id = qrBoxId;
+
+        card.appendChild(mssvTag);
+        card.appendChild(title);
+        card.appendChild(pClass);
+        card.appendChild(pDept);
+        card.appendChild(qrDiv);
+        container.appendChild(card);
+
+        new QRCode(qrDiv, {
+          text: JSON.stringify(s),
+          width: 150,
+          height: 150,
+          colorDark: "#0f172a",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      });
+    }
+
+    function generateSampleBatch(count = 6) {
+      const list = [];
+      const lines = [];
+      for (let i = 0; i < count; i++) {
+        const s = createRandomStudentObj(i);
+        list.push(s);
+        lines.push(`${s.ho_ten}, ${s.ma_so_sinh_vien}, ${s.lop}, ${s.khoa}, ${s.email}, ${s.phone}`);
+      }
+      document.getElementById('batch_input').value = lines.join('\n');
+      renderBatchCards(list);
+    }
+
+    function generateBatchFromInput() {
+      const text = document.getElementById('batch_input').value.trim();
+      if (!text) return;
+      const lines = text.split('\n');
+      const students = [];
+
+      lines.forEach(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 2 && parts[0] && parts[1]) {
+          students.push({
+            ho_ten: parts[0],
+            ma_so_sinh_vien: parts[1],
+            lop: parts[2] || 'DUT',
+            khoa: parts[3] || 'Đại học Bách Khoa',
+            email: parts[4] || `${parts[1]}@sv.dut.edu.vn`,
+            phone: parts[5] || '0905000000'
+          });
+        }
+      });
+
+      if (students.length > 0) {
+        renderBatchCards(students);
+      }
+    }
+
+    window.onload = function() {
+      updateQr();
+    };
+  </script>
+</body>
+</html>

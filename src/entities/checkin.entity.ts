@@ -18,6 +18,7 @@ import { Booth } from './booth.entity';
   'checkInTime',
 ])
 @Index('IDX_CHECKINS_STUDENT_TIME', ['studentId', 'checkInTime'])
+@Index('IDX_CHECKINS_GRADUATION_BATCH_TIME', ['graduationBatch', 'checkInTime'])
 export class Checkin {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -43,6 +44,11 @@ export class Checkin {
 
   @Column({ type: 'text', nullable: true })
   notes: string;
+
+  // Snapshot mã đợt tại thời điểm quét. Nhờ vậy báo cáo lịch sử không bị đổi
+  // nếu hồ sơ sinh viên được import lại ở một đợt sau.
+  @Column({ name: 'dot_tot_nghiep', type: 'varchar', length: 100, nullable: true })
+  graduationBatch: string | null;
 
   // Relations
   @ManyToOne(() => Student, (student) => student.checkins, {

@@ -21,12 +21,22 @@ export class SchoolAdminController {
     constructor(private readonly schoolAdminService: SchoolAdminService) { }
 
     @ApiOperation({ summary: 'Dashboard tổng quan – stats, booths, recent scans' })
+    @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
     @Get('dashboard')
-    getDashboard() { return this.schoolAdminService.getDashboard(); }
+    getDashboard(@Query('dotTotNghiep') dotTotNghiep?: string) {
+        return this.schoolAdminService.getDashboard(dotTotNghiep);
+    }
 
     @ApiOperation({ summary: 'Thống kê chi tiết: giờ, ngành, năm học' })
+    @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
     @Get('stats')
-    getStats() { return this.schoolAdminService.getStats(); }
+    getStats(@Query('dotTotNghiep') dotTotNghiep?: string) {
+        return this.schoolAdminService.getStats(dotTotNghiep);
+    }
+
+    @ApiOperation({ summary: 'Danh sách các đợt tốt nghiệp có thể lọc trên dashboard' })
+    @Get('graduation-batches')
+    getGraduationBatches() { return this.schoolAdminService.getGraduationBatches(); }
 
     @ApiOperation({ summary: 'Danh sách tất cả gian hàng' })
     @Get('booths')
@@ -34,16 +44,26 @@ export class SchoolAdminController {
 
     @ApiOperation({ summary: 'Danh sách sinh viên đã đăng ký (phân trang)' })
     @ApiQuery({ name: 'page', required: false }) @ApiQuery({ name: 'pageSize', required: false })
+    @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
     @Get('visitors')
-    getVisitors(@Query('page') p?: string, @Query('pageSize') ps?: string) {
-        return this.schoolAdminService.getVisitors(p ? +p : 1, ps ? +ps : 20);
+    getVisitors(
+        @Query('page') p?: string,
+        @Query('pageSize') ps?: string,
+        @Query('dotTotNghiep') dotTotNghiep?: string,
+    ) {
+        return this.schoolAdminService.getVisitors(p ? +p : 1, ps ? +ps : 20, dotTotNghiep);
     }
 
     @ApiOperation({ summary: 'Danh sách lượt check-in toàn sự kiện (phân trang)' })
     @ApiQuery({ name: 'page', required: false }) @ApiQuery({ name: 'pageSize', required: false })
+    @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
     @Get('checkins')
-    getCheckins(@Query('page') p?: string, @Query('pageSize') ps?: string) {
-        return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30);
+    getCheckins(
+        @Query('page') p?: string,
+        @Query('pageSize') ps?: string,
+        @Query('dotTotNghiep') dotTotNghiep?: string,
+    ) {
+        return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30, dotTotNghiep);
     }
 
     @ApiOperation({ summary: 'Xuất danh sách sinh viên tham gia gian hàng doanh nghiệp' })
@@ -59,8 +79,11 @@ export class SchoolAdminController {
     }
 
     @ApiOperation({ summary: 'Thống kê số lượt quét và sinh viên theo từng gian hàng' })
+    @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
     @Get('booth-stats')
-    getBoothStats() { return this.schoolAdminService.getBoothStats(); }
+    getBoothStats(@Query('dotTotNghiep') dotTotNghiep?: string) {
+        return this.schoolAdminService.getBoothStats(dotTotNghiep);
+    }
 
     @ApiOperation({ summary: 'Danh sách tất cả workshop kèm trạng thái tài khoản' })
     @Get('workshops')

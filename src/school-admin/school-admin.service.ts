@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Booth, BoothType } from '../entities/booth.entity';
 import { Business, BusinessType } from '../entities/business.entity';
@@ -14,6 +14,8 @@ import { CreateBusinessAccountDto } from './dto/business-account.dto';
 import { CreateWorkshopDto } from './dto/create-workshop.dto';
 import { CreateTotnghiepDto } from './dto/create-totnghiep.dto';
 import { randomUUID } from 'crypto';
+
+const LEGACY_GRADUATION_BATCH = 'TN2026';
 
 @Injectable()
 export class SchoolAdminService {
@@ -30,11 +32,65 @@ export class SchoolAdminService {
     private readonly userRepo: Repository<User>,
   ) {}
 
+  private normalizeGraduationBatch(value?: string) {
+    const normalized = value?.trim();
+    return normalized || undefined;
+  }
+
+  /**
+   * Lọc theo mã đợt lưu trên check-in (snapshot) để dữ liệu lịch sử không bị
+   * thay đổi bởi lần import sau. Riêng TN2026 giữ tương thích dữ liệu cũ đang
+   * đánh dấu tạm bằng phone hoặc class_name.
+   */
+  private applyGraduationBatchFilter(
+    qb: SelectQueryBuilder<any>,
+    studentAlias: string,
+    graduationBatch?: string,
+    checkinAlias?: string,
+  ) {
+    const batch = this.normalizeGraduationBatch(graduationBatch);
+    if (!batch) return qb;
+
+    const params = {
+      graduationBatch: batch,
+      legacyGraduationBatch: LEGACY_GRADUATION_BATCH,
+    };
+
+    if (checkinAlias) {
+      if (batch !== LEGACY_GRADUATION_BATCH) {
+        return qb.andWhere(`${checkinAlias}.dot_tot_nghiep = :graduationBatch`, params);
+      }
+
+      return qb.andWhere(
+        `(${checkinAlias}.dot_tot_nghiep = :graduationBatch OR (${checkinAlias}.dot_tot_nghiep IS NULL AND (${studentAlias}.phone = :legacyGraduationBatch OR ${studentAlias}.class_name = :legacyGraduationBatch)))`,
+        params,
+      );
+    }
+
+    if (batch !== LEGACY_GRADUATION_BATCH) {
+      return qb.andWhere(`${studentAlias}.dot_tot_nghiep = :graduationBatch`, params);
+    }
+
+    return qb.andWhere(
+      `(${studentAlias}.dot_tot_nghiep = :graduationBatch OR (${studentAlias}.dot_tot_nghiep IS NULL AND (${studentAlias}.phone = :legacyGraduationBatch OR ${studentAlias}.class_name = :legacyGraduationBatch)))`,
+      params,
+    );
+  }
+
   // GET /school-admin/dashboard
-  async getDashboard() {
+  async getDashboard(graduationBatch?: string) {
     const [totalStudents, totalCheckins, booths] = await Promise.all([
-      this.studentRepo.count(),
-      this.checkinRepo.count(),
+      this.applyGraduationBatchFilter(
+        this.studentRepo.createQueryBuilder('s'),
+        's',
+        graduationBatch,
+      ).getCount(),
+      this.applyGraduationBatchFilter(
+        this.checkinRepo.createQueryBuilder('c').innerJoin('c.student', 's'),
+        's',
+        graduationBatch,
+        'c',
+      ).getCount(),
       this.boothRepo.find({ relations: ['business'] }),
     ]);
 
@@ -42,25 +98,45 @@ export class SchoolAdminService {
     const totalWorkshops = booths.filter((b) => b.type === BoothType.WORKSHOP).length;
     const totalTotnghieps = booths.filter((b) => b.type === BoothType.TOTNGHIEP).length;
 
-    const uniqueCheckinsResult = await this.checkinRepo
+    const uniqueCheckinsQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select('COUNT(DISTINCT c.studentId)', 'count')
-      .getRawOne<{ count: string }>();
+    const uniqueCheckinsResult = await this.applyGraduationBatchFilter(
+      uniqueCheckinsQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawOne<{ count: string }>();
 
-    const recentScans = await this.checkinRepo.find({
-      relations: ['student', 'booth', 'booth.business'],
-      order: { checkInTime: 'DESC' },
-      take: 10,
-    });
-
-    const groupedByType = await this.checkinRepo
+    const recentScansQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoinAndSelect('c.student', 'student')
+      .leftJoinAndSelect('c.booth', 'booth')
+      .leftJoinAndSelect('booth.business', 'business')
+      .orderBy('c.checkInTime', 'DESC')
+      .take(10);
+    const recentScans = await this.applyGraduationBatchFilter(
+      recentScansQuery,
+      'student',
+      graduationBatch,
+      'c',
+    ).getMany();
+
+    const groupedByTypeQuery = this.checkinRepo
+      .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .leftJoin('c.booth', 'booth')
       .select('booth.type', 'type')
       .addSelect('COUNT(*)', 'totalCheckins')
       .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueVisitors')
-      .groupBy('booth.type')
-      .getRawMany<{
+      .groupBy('booth.type');
+    const groupedByType = await this.applyGraduationBatchFilter(
+      groupedByTypeQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{
         type: BoothType;
         totalCheckins: string;
         uniqueVisitors: string;
@@ -91,6 +167,7 @@ export class SchoolAdminService {
         totalTotnghieps,
         byType: byTypeStats,
       },
+      filters: { graduationBatch: this.normalizeGraduationBatch(graduationBatch) ?? null },
       booths: booths.slice(0, 20).map((b) => ({
         id: b.id,
         name: b.name,
@@ -121,56 +198,84 @@ export class SchoolAdminService {
   }
 
   // GET /school-admin/stats
-  async getStats() {
+  async getStats(graduationBatch?: string) {
     // Hourly distribution
-    const hourly = await this.checkinRepo
+    const hourlyQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select("DATE_PART('hour', c.checkInTime)", 'hour')
       .addSelect('COUNT(*)', 'count')
       .groupBy("DATE_PART('hour', c.checkInTime)")
-      .orderBy('hour')
-      .getRawMany<{ hour: string; count: string }>();
+      .orderBy('hour');
+    const hourly = await this.applyGraduationBatchFilter(
+      hourlyQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{ hour: string; count: string }>();
 
     // Year distribution
-    const yearDist = await this.checkinRepo
+    const yearDistQuery = this.checkinRepo
       .createQueryBuilder('c')
       .innerJoin('c.student', 's')
       .select('s.year', 'year')
       .addSelect('COUNT(DISTINCT c.studentId)', 'count')
       .where('s.year IS NOT NULL')
       .groupBy('s.year')
-      .orderBy('year')
-      .getRawMany<{ year: string; count: string }>();
+      .orderBy('year');
+    const yearDist = await this.applyGraduationBatchFilter(
+      yearDistQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{ year: string; count: string }>();
 
     // Department distribution
-    const deptDist = await this.checkinRepo
+    const deptDistQuery = this.checkinRepo
       .createQueryBuilder('c')
       .innerJoin('c.student', 's')
       .select('s.department', 'department')
       .addSelect('COUNT(DISTINCT c.studentId)', 'count')
       .where('s.department IS NOT NULL')
       .groupBy('s.department')
-      .orderBy('count', 'DESC')
-      .getRawMany<{ department: string; count: string }>();
+      .orderBy('count', 'DESC');
+    const deptDist = await this.applyGraduationBatchFilter(
+      deptDistQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{ department: string; count: string }>();
 
     // Daily distribution (group by calendar date)
-    const daily = await this.checkinRepo
+    const dailyQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select('DATE(c.checkInTime)', 'date')
       .addSelect('COUNT(*)', 'count')
       .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
       .groupBy('DATE(c.checkInTime)')
-      .orderBy('date')
-      .getRawMany<{ date: string; count: string; uniqueStudents: string }>();
+      .orderBy('date');
+    const daily = await this.applyGraduationBatchFilter(
+      dailyQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{ date: string; count: string; uniqueStudents: string }>();
 
-    const checkinTypeDistribution = await this.checkinRepo
+    const checkinTypeDistributionQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .leftJoin('c.booth', 'booth')
       .select('booth.type', 'type')
       .addSelect('COUNT(*)', 'count')
       .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
-      .groupBy('booth.type')
-      .getRawMany<{
+      .groupBy('booth.type');
+    const checkinTypeDistribution = await this.applyGraduationBatchFilter(
+      checkinTypeDistributionQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{
         type: BoothType;
         count: string;
         uniqueStudents: string;
@@ -210,13 +315,18 @@ export class SchoolAdminService {
   }
 
   // GET /school-admin/visitors?page=1&pageSize=20
-  async getVisitors(page = 1, pageSize = 20) {
-    const [students, total] = await this.studentRepo.findAndCount({
-      relations: ['school'],
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+  async getVisitors(page = 1, pageSize = 20, graduationBatch?: string) {
+    const visitorsQuery = this.studentRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.school', 'school')
+      .orderBy('s.createdAt', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+    const [students, total] = await this.applyGraduationBatchFilter(
+      visitorsQuery,
+      's',
+      graduationBatch,
+    ).getManyAndCount();
     return {
       items: students.map((s) => ({
         id: s.id,
@@ -226,6 +336,7 @@ export class SchoolAdminService {
         phone: s.phone,
         department: (s as any).department ?? null,
         className: (s as any).className ?? null,
+        graduationBatch: s.graduationBatch,
         year: s.year,
         gpa: s.gpa,
         school: s.school?.name ?? null,
@@ -238,13 +349,21 @@ export class SchoolAdminService {
   }
 
   // GET /school-admin/checkins?page=1&pageSize=30
-  async getCheckins(page = 1, pageSize = 30) {
-    const [checkins, total] = await this.checkinRepo.findAndCount({
-      relations: ['student', 'booth', 'booth.business'],
-      order: { checkInTime: 'DESC' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    });
+  async getCheckins(page = 1, pageSize = 30, graduationBatch?: string) {
+    const checkinsQuery = this.checkinRepo
+      .createQueryBuilder('c')
+      .innerJoinAndSelect('c.student', 'student')
+      .leftJoinAndSelect('c.booth', 'booth')
+      .leftJoinAndSelect('booth.business', 'business')
+      .orderBy('c.checkInTime', 'DESC')
+      .skip((page - 1) * pageSize)
+      .take(pageSize);
+    const [checkins, total] = await this.applyGraduationBatchFilter(
+      checkinsQuery,
+      'student',
+      graduationBatch,
+      'c',
+    ).getManyAndCount();
     return {
       items: checkins.map((c) => ({
         id: c.id,
@@ -258,6 +377,7 @@ export class SchoolAdminService {
           department: (c.student as any)?.department ?? null,
           className: (c.student as any)?.className ?? null,
           year: c.student?.year,
+          graduationBatch: c.graduationBatch ?? c.student?.graduationBatch ?? null,
         },
         booth: {
           id: c.booth?.id,
@@ -283,19 +403,25 @@ export class SchoolAdminService {
   }
 
   // GET /school-admin/booth-stats
-  async getBoothStats() {
+  async getBoothStats(graduationBatch?: string) {
     const booths = await this.boothRepo.find({
       relations: ['business'],
       order: { createdAt: 'ASC' },
     });
 
-    const stats = await this.checkinRepo
+    const statsQuery = this.checkinRepo
       .createQueryBuilder('c')
+      .innerJoin('c.student', 's')
       .select('c.boothId', 'boothId')
       .addSelect('COUNT(*)', 'totalScans')
       .addSelect('COUNT(DISTINCT c.studentId)', 'uniqueStudents')
-      .groupBy('c.boothId')
-      .getRawMany<{
+      .groupBy('c.boothId');
+    const stats = await this.applyGraduationBatchFilter(
+      statsQuery,
+      's',
+      graduationBatch,
+      'c',
+    ).getRawMany<{
         boothId: string;
         totalScans: string;
         uniqueStudents: string;
@@ -316,6 +442,74 @@ export class SchoolAdminService {
         uniqueStudents: parseInt(s?.uniqueStudents ?? '0'),
       };
     });
+  }
+
+  async getGraduationBatches() {
+    const studentBatches = await this.studentRepo
+      .createQueryBuilder('s')
+      .select('s.dot_tot_nghiep', 'code')
+      .addSelect('COUNT(DISTINCT s.id)', 'totalStudents')
+      .where('s.dot_tot_nghiep IS NOT NULL')
+      .andWhere("TRIM(s.dot_tot_nghiep) <> ''")
+      .groupBy('s.dot_tot_nghiep')
+      .getRawMany<{ code: string; totalStudents: string }>();
+
+    const checkinBatches = await this.checkinRepo
+      .createQueryBuilder('c')
+      .select('c.dot_tot_nghiep', 'code')
+      .addSelect('COUNT(*)', 'totalCheckins')
+      .where('c.dot_tot_nghiep IS NOT NULL')
+      .andWhere("TRIM(c.dot_tot_nghiep) <> ''")
+      .groupBy('c.dot_tot_nghiep')
+      .getRawMany<{ code: string; totalCheckins: string }>();
+
+    const summaries = new Map<string, { code: string; totalStudents: number; totalCheckins: number }>();
+    for (const item of studentBatches) {
+      summaries.set(item.code, {
+        code: item.code,
+        totalStudents: parseInt(item.totalStudents),
+        totalCheckins: 0,
+      });
+    }
+    for (const item of checkinBatches) {
+      const current = summaries.get(item.code) ?? {
+        code: item.code,
+        totalStudents: 0,
+        totalCheckins: 0,
+      };
+      current.totalCheckins = parseInt(item.totalCheckins);
+      summaries.set(item.code, current);
+    }
+
+    const legacyStudents = await this.applyGraduationBatchFilter(
+      this.studentRepo.createQueryBuilder('s'),
+      's',
+      LEGACY_GRADUATION_BATCH,
+    ).getCount();
+    const legacyCheckins = await this.applyGraduationBatchFilter(
+      this.checkinRepo.createQueryBuilder('c').innerJoin('c.student', 's'),
+      's',
+      LEGACY_GRADUATION_BATCH,
+      'c',
+    ).getCount();
+
+    if (legacyStudents > 0 || legacyCheckins > 0) {
+      summaries.set(LEGACY_GRADUATION_BATCH, {
+        code: LEGACY_GRADUATION_BATCH,
+        totalStudents: legacyStudents,
+        totalCheckins: legacyCheckins,
+      });
+    }
+
+    return Array.from(summaries.values())
+      .map((item) => ({
+        ...item,
+        label:
+          item.code === LEGACY_GRADUATION_BATCH
+            ? `${item.code} (dữ liệu cũ)`
+            : item.code,
+      }))
+      .sort((a, b) => b.code.localeCompare(a.code));
   }
 
   // POST /school-admin/workshops

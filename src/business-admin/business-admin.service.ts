@@ -444,6 +444,7 @@ export class BusinessAdminService {
                 boothId: booth.id,
                 status: 'active',
                 notes: 'Điểm danh thủ công',
+                graduationBatch: student.graduationBatch,
             }),
         );
 

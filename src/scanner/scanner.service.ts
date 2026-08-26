@@ -56,6 +56,7 @@ export class ScannerService {
       studentId: student.id,
       boothId,
       notes: dto.notes,
+      graduationBatch: student.graduationBatch,
     });
 
     if (!checkin.created) {
@@ -96,6 +97,7 @@ export class ScannerService {
       studentId: student.id,
       boothId,
       notes: dto.notes,
+      graduationBatch: student.graduationBatch,
     });
 
     if (!checkin.created) {
@@ -255,17 +257,33 @@ export class ScannerService {
 
   private async upsertStudentFromQr(dto: QrScanDto) {
     const studentPayload: Partial<Student> = {
-      studentCode: dto.ma_so_sinh_vien,
-      fullName: dto.ho_ten,
-      email: dto.email ?? null,
-      phone: dto.phone ?? null,
-      className: dto.lop,
-      major: null,
+      studentCode: dto.ma_so_sinh_vien.trim(),
+      fullName: dto.ho_ten.trim(),
       year: this.deriveYearFromStudentCode(dto.ma_so_sinh_vien),
     };
 
-    if (dto.khoa !== undefined) {
-      studentPayload.department = dto.khoa;
+    const className = this.normalizeOptionalText(dto.lop);
+    if (className) {
+      studentPayload.className = className;
+    }
+
+    const department = this.normalizeOptionalText(dto.khoa);
+    if (department) {
+      studentPayload.department = department;
+    }
+
+    const email = this.normalizeEmail(dto.email);
+    if (email) {
+      studentPayload.email = email;
+    }
+
+    const phone = this.normalizeOptionalText(dto.phone);
+    if (phone) {
+      studentPayload.phone = phone;
+    }
+
+    if (dto.dot_tot_nghiep !== undefined) {
+      studentPayload.graduationBatch = dto.dot_tot_nghiep.trim() || null;
     }
 
     await this.studentRepo.upsert(studentPayload, ['studentCode']);
@@ -279,10 +297,23 @@ export class ScannerService {
     return student;
   }
 
+  private normalizeOptionalText(value?: string) {
+    const normalized = value?.trim();
+    return normalized || undefined;
+  }
+
+  private normalizeEmail(value?: string) {
+    const email = this.normalizeOptionalText(value);
+    return email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+      ? email
+      : undefined;
+  }
+
   private async createCheckinAtomically(input: {
     studentId: string;
     boothId: string;
     notes?: string;
+    graduationBatch?: string | null;
   }) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -313,6 +344,7 @@ export class ScannerService {
           boothId: input.boothId,
           notes: input.notes,
           status: 'active',
+          graduationBatch: input.graduationBatch ?? null,
         }),
       );
 
@@ -334,6 +366,7 @@ export class ScannerService {
       email: student.email,
       department: student.department,
       className: student.className,
+      graduationBatch: student.graduationBatch,
       year: student.year ?? this.deriveYearFromStudentCode(student.studentCode),
       school: student.school?.name,
     };
