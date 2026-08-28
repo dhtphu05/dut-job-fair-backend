@@ -22,6 +22,7 @@
     "generate:letters": "set \"XDG_CACHE_HOME=%CD%\\.cache\\dut-graduation-letter-fontconfig\" && ts-node -r tsconfig-paths/register src/scripts/generate-graduation-letters.ts",
     "import": "ts-node -r tsconfig-paths/register src/scripts/import-students-and-generate-qr.ts",
     "import:students": "ts-node -r tsconfig-paths/register src/scripts/import-students-and-generate-qr.ts",
+    "delete:checkin-batch": "ts-node -r tsconfig-paths/register src/scripts/delete-checkin-batch.ts",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
