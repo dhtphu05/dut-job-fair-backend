@@ -5,13 +5,23 @@ import { Client } from 'pg';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 const LEGACY_GRADUATION_BATCH = 'TN2026';
+const ALL_BATCHES_CONFIRMATION = 'DELETE_ALL_GRADUATION_BATCHES';
 
 type Options = {
   batch?: string;
   confirmation?: string;
   execute: boolean;
   deleteStudents: boolean;
+  allBatches: boolean;
   help: boolean;
+};
+
+type DeletionTarget = {
+  label: string;
+  confirmation: string;
+  checkinPredicate: string;
+  studentPredicate: string;
+  parameters: string[];
 };
 
 type BatchSummary = {
@@ -44,18 +54,45 @@ const studentMatchesBatch = `
   )
 `;
 
+const checkinMatchesAnyGraduationBatch = `
+  COALESCE(
+    NULLIF(BTRIM(c.dot_tot_nghiep), '') IS NOT NULL
+    OR (
+      NULLIF(BTRIM(c.dot_tot_nghiep), '') IS NULL
+      AND (s.phone = '${LEGACY_GRADUATION_BATCH}' OR s.class_name = '${LEGACY_GRADUATION_BATCH}')
+    ),
+    FALSE
+  )
+`;
+
+const studentMatchesAnyGraduationBatch = `
+  COALESCE(
+    NULLIF(BTRIM(s.dot_tot_nghiep), '') IS NOT NULL
+    OR (
+      NULLIF(BTRIM(s.dot_tot_nghiep), '') IS NULL
+      AND (s.phone = '${LEGACY_GRADUATION_BATCH}' OR s.class_name = '${LEGACY_GRADUATION_BATCH}')
+    ),
+    FALSE
+  )
+`;
+
 function printUsage() {
   console.log(`
-Xóa dữ liệu check-in của một đợt tốt nghiệp.
+Xóa dữ liệu check-in của một hoặc tất cả đợt tốt nghiệp.
 
 Cú pháp:
   npm run delete:checkin-batch -- --batch=TN2026_dot_2
   npm run delete:checkin-batch -- --batch=TN2026_dot_2 --execute --confirm=TN2026_dot_2
+  npm run delete:checkin-batch -- --all-batches
+  npm run delete:checkin-batch -- --all-batches --execute --confirm=DELETE_ALL_GRADUATION_BATCHES
 
 Tùy chọn:
-  --batch=<mã> | --dot-tot-nghiep=<mã>  Mã đợt cần xử lý (bắt buộc).
+  --batch=<mã> | --dot-tot-nghiep=<mã>  Mã đợt cần xử lý.
+  --all-batches                          Xử lý toàn bộ check-in của các đợt tốt nghiệp.
+                                         Không được dùng cùng --batch.
   --execute                               Thực hiện xóa. Bỏ qua cờ này chỉ xem trước.
-  --confirm=<mã>                          Phải trùng chính xác với --batch khi dùng --execute.
+  --confirm=<giá trị>                     Phải trùng mã đợt; với --all-batches phải là
+                                         DELETE_ALL_GRADUATION_BATCHES.
   --delete-students                       Xóa cả sinh viên thuộc đợt sau khi xóa check-in.
                                             Bị chặn nếu các sinh viên này có check-in ở đợt khác.
   --help                                  Hiển thị hướng dẫn này.
@@ -88,6 +125,7 @@ function parseOptions(args: string[]): Options {
   const options: Options = {
     execute: false,
     deleteStudents: false,
+    allBatches: false,
     help: false,
   };
 
@@ -100,6 +138,8 @@ function parseOptions(args: string[]): Options {
       options.execute = true;
     } else if (arg === '--delete-students') {
       options.deleteStudents = true;
+    } else if (arg === '--all-batches') {
+      options.allBatches = true;
     } else if (arg === '--batch' || arg === '--dot-tot-nghiep') {
       setBatch(options, readOptionValue(args, index, arg));
       index += 1;
@@ -120,6 +160,9 @@ function parseOptions(args: string[]): Options {
   if (options.batch && options.batch.length > 100) {
     throw new Error('Mã đợt không được dài quá 100 ký tự.');
   }
+  if (options.batch && options.allBatches) {
+    throw new Error('Không thể dùng --all-batches cùng --batch.');
+  }
 
   return options;
 }
@@ -128,36 +171,60 @@ function countFromRow(row?: { count: string }) {
   return Number(row?.count ?? 0);
 }
 
+function createTarget(options: Options): DeletionTarget {
+  if (options.allBatches) {
+    return {
+      label: 'Tất cả đợt tốt nghiệp đã check-in',
+      confirmation: ALL_BATCHES_CONFIRMATION,
+      checkinPredicate: checkinMatchesAnyGraduationBatch,
+      studentPredicate: studentMatchesAnyGraduationBatch,
+      parameters: [],
+    };
+  }
+
+  if (!options.batch) {
+    throw new Error('Thiếu --batch, --dot-tot-nghiep hoặc --all-batches.');
+  }
+
+  return {
+    label: options.batch,
+    confirmation: options.batch,
+    checkinPredicate: checkinMatchesBatch,
+    studentPredicate: studentMatchesBatch,
+    parameters: [options.batch],
+  };
+}
+
 async function getSummary(
   client: Client,
-  batch: string,
+  target: DeletionTarget,
 ): Promise<BatchSummary> {
   const checkinsResult = await client.query<{ count: string }>(
     `
         SELECT COUNT(*)::text AS count
         FROM checkins c
         INNER JOIN students s ON s.id = c.student_id
-        WHERE ${checkinMatchesBatch}
+        WHERE ${target.checkinPredicate}
       `,
-    [batch],
+    target.parameters,
   );
   const studentsResult = await client.query<{ count: string }>(
     `
         SELECT COUNT(*)::text AS count
         FROM students s
-        WHERE ${studentMatchesBatch}
+        WHERE ${target.studentPredicate}
       `,
-    [batch],
+    target.parameters,
   );
   const outsideBatchCheckinsResult = await client.query<{ count: string }>(
     `
         SELECT COUNT(*)::text AS count
         FROM checkins c
         INNER JOIN students s ON s.id = c.student_id
-        WHERE ${studentMatchesBatch}
-          AND NOT (${checkinMatchesBatch})
+        WHERE ${target.studentPredicate}
+          AND NOT (${target.checkinPredicate})
       `,
-    [batch],
+    target.parameters,
   );
 
   return {
@@ -169,8 +236,8 @@ async function getSummary(
   };
 }
 
-function printSummary(batch: string, summary: BatchSummary) {
-  console.log(`\nĐợt: ${batch}`);
+function printSummary(target: DeletionTarget, summary: BatchSummary) {
+  console.log(`\nPhạm vi: ${target.label}`);
   console.log(`- Check-in sẽ bị xóa: ${summary.checkins}`);
   console.log(`- Sinh viên thuộc đợt: ${summary.students}`);
   console.log(
@@ -180,7 +247,7 @@ function printSummary(batch: string, summary: BatchSummary) {
 
 async function deleteBatchData(
   client: Client,
-  batch: string,
+  target: DeletionTarget,
   deleteStudents: boolean,
 ) {
   const deletedCheckins = await client.query(
@@ -188,9 +255,9 @@ async function deleteBatchData(
       DELETE FROM checkins c
       USING students s
       WHERE c.student_id = s.id
-        AND ${checkinMatchesBatch}
+        AND ${target.checkinPredicate}
     `,
-    [batch],
+    target.parameters,
   );
 
   let deletedStudents = 0;
@@ -198,9 +265,9 @@ async function deleteBatchData(
     const result = await client.query(
       `
         DELETE FROM students s
-        WHERE ${studentMatchesBatch}
+        WHERE ${target.studentPredicate}
       `,
-      [batch],
+      target.parameters,
     );
     deletedStudents = result.rowCount ?? 0;
   }
@@ -218,14 +285,17 @@ async function main() {
     return;
   }
 
-  if (!options.batch) {
+  if (!options.batch && !options.allBatches) {
     printUsage();
-    throw new Error('Thiếu --batch hoặc --dot-tot-nghiep.');
+    throw new Error('Thiếu --batch, --dot-tot-nghiep hoặc --all-batches.');
   }
 
-  if (options.execute && options.confirmation !== options.batch) {
+  const target = createTarget(options);
+  if (options.execute && options.confirmation !== target.confirmation) {
     throw new Error(
-      'Khi dùng --execute, cần truyền --confirm với giá trị trùng chính xác --batch.',
+      options.allBatches
+        ? `Khi dùng --all-batches --execute, cần truyền --confirm=${ALL_BATCHES_CONFIRMATION}.`
+        : 'Khi dùng --execute, cần truyền --confirm với giá trị trùng chính xác --batch.',
     );
   }
 
@@ -242,8 +312,8 @@ async function main() {
     await client.connect();
     await client.query('BEGIN');
 
-    const summary = await getSummary(client, options.batch);
-    printSummary(options.batch, summary);
+    const summary = await getSummary(client, target);
+    printSummary(target, summary);
 
     if (!options.execute) {
       await client.query('ROLLBACK');
@@ -261,7 +331,7 @@ async function main() {
 
     const deleted = await deleteBatchData(
       client,
-      options.batch,
+      target,
       options.deleteStudents,
     );
     await client.query('COMMIT');
