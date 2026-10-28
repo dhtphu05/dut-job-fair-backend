@@ -194,7 +194,22 @@ export class AuthService {
       .where('user.id = :userId', { userId })
       .getOne();
     if (!user) throw new UnauthorizedException();
-    return user;
+
+    let logoUrl: string | null = null;
+    if (user.boothId) {
+      const booth = await this.boothRepo.findOne({ where: { id: user.boothId } });
+      if (booth) {
+        const business = await this.businessRepo.findOne({
+          where: { id: booth.businessId },
+        });
+        logoUrl = business?.logoUrl ?? null;
+      }
+    }
+
+    return {
+      ...user,
+      logoUrl,
+    };
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────

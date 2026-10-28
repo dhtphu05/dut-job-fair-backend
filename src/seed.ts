@@ -54,17 +54,17 @@ function buildBoothCode(index: number): string {
 }
 
 const DEPT_META: Record<string, { majors: string[]; classes: string[]; count: number }> = {
-  'Cơ Khí': {
+  'Cơ khí': {
     majors: ['Cơ khí chế tạo máy', 'Cơ điện tử', 'Kỹ thuật cơ khí'],
     classes: ['22CK1', '22CK2', '23CK1', '23CK2'],
     count: 25,
   },
-  Hóa: {
+  'Hóa, Môi trường và Khoa học sự sống': {
     majors: ['Kỹ thuật hóa học', 'Công nghệ hóa học', 'Kỹ thuật môi trường'],
     classes: ['22H1', '22H2', '23H1'],
     count: 7,
   },
-  'Xây dựng cầu đường': {
+  'Xây dựng': {
     majors: ['Kỹ thuật xây dựng công trình giao thông', 'Kỹ thuật cầu đường'],
     classes: ['22CD1', '22CD2', '23CD1'],
     count: 15,
@@ -74,12 +74,7 @@ const DEPT_META: Record<string, { majors: string[]; classes: string[]; count: nu
     classes: ['22TH1', '22TH2', '22TH3', '23TH1', '23TH2'],
     count: 40,
   },
-  'Công nghệ tiên tiến': {
-    majors: ['Kỹ thuật tiên tiến', 'Công nghệ tiên tiến'],
-    classes: ['22AT1', '23AT1'],
-    count: 12,
-  },
-  'Điện tử viễn thông': {
+  'Điện tử và Trí tuệ nhân tạo': {
     majors: ['Kỹ thuật điện tử', 'Kỹ thuật viễn thông', 'Điện tử số'],
     classes: ['22DT1', '22DT2', '23DT1', '23DT2', '23DT3', '22VT1'],
     count: 35,
@@ -89,17 +84,17 @@ const DEPT_META: Record<string, { majors: string[]; classes: string[]; count: nu
     classes: ['22D1', '22D2', '23D1', '23D2'],
     count: 30,
   },
-  'Quản lý dự án': {
+  'Quản lý dự án và Công nghiệp': {
     majors: ['Quản lý dự án', 'Quản lý kỹ thuật xây dựng'],
     classes: ['22QLD1', '23QLD1'],
     count: 10,
   },
-  'Xây dựng công trình thủy': {
-    majors: ['Kỹ thuật công trình thủy', 'Thủy lợi'],
-    classes: ['22CTT1', '23CTT1'],
+  'Kiến trúc': {
+    majors: ['Kiến trúc'],
+    classes: ['22KT1', '23KT1'],
     count: 8,
   },
-  'Cơ khí Giao Thông': {
+  'Cơ khí Giao thông và Năng lượng': {
     majors: ['Kỹ thuật ô tô', 'Cơ khí giao thông vận tải', 'Động lực học phương tiện'],
     classes: ['22CKGT1', '22CKGT2', '23CKGT1'],
     count: 20,

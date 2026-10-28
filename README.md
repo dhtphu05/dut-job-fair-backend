@@ -43,7 +43,10 @@ src/
 
 ## Getting Started
 
-### 1. Install dependencies
+### 1. Prerequisites and dependencies
+
+Use Node.js 22 LTS (or newer supported LTS) and start Docker Desktop with
+Linux containers enabled. Run all commands from this project's directory.
 
 ```bash
 npm install
@@ -51,24 +54,51 @@ npm install
 
 ### 2. Configure environment variables
 
-Create a `.env` file with your database configuration:
+Copy `.env.example` to `.env` (PowerShell):
 
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=dut_job_fair
-JWT_SECRET=your_secret
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 3. Run in development
+Skip copying if `.env` already exists. Set separate random values for
+`JWT_SECRET` and `JWT_REFRESH_SECRET`, plus local passwords for
+`SEED_ADMIN_PASSWORD` and `SEED_BUSINESS_PASSWORD`.
+The default database is `dut_job_fair`, served at `127.0.0.1:5499` with
+username/password `postgres`/`postgres`. Keep `DB_PORT=5499` when using the
+development Docker database. TypeORM creates/updates the schema at startup;
+use a dedicated local database.
+
+### 3. Start the local database and create login accounts
 
 ```bash
-npm run start:dev
+npm run db:up
+npm run seed:shared-accounts
 ```
 
-### 4. Build and run in production mode
+The seed creates `checkin@admin.com` (school admin), `system@example.com`
+(system admin), and `scanner@example.com`, using `SEED_ADMIN_PASSWORD`.
+Business/workshop accounts use `SEED_BUSINESS_PASSWORD`. Rerunning this
+command resets these accounts' passwords to the configured values.
+
+### 4. Run in development
+
+```bash
+npm run start:local
+```
+
+This waits for PostgreSQL to be healthy, then starts NestJS in watch mode.
+If the database is already running, `npm run start:dev` also works.
+
+- API: http://localhost:3000/api
+- Swagger UI: http://localhost:3000/docs
+- OpenAPI JSON: http://localhost:3000/docs-json
+
+Press Ctrl+C to stop NestJS. `npm run db:down` stops the local database
+while keeping its data in the Docker volume. `npm run db:logs` shows its logs.
+If a port is occupied, change `PORT` or `DB_PORT` in `.env`, then rerun
+`npm run start:local`. Stop the database before changing `DB_PORT`.
+
+### 5. Build and run in production mode
 
 ```bash
 npm run build

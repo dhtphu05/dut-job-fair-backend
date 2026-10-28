@@ -139,6 +139,15 @@ async function upsertBusinessAccount(
   let booth = await boothRepo.findOne({
     where: { businessId: business.id },
   });
+  const conflictingBooth = await boothRepo.findOne({
+    where: { qrCode: seed.qrCode },
+  });
+  if (conflictingBooth && conflictingBooth.id !== booth?.id) {
+    await boothRepo.update(conflictingBooth.id, {
+      qrCode: null as unknown as string,
+    });
+  }
+
   const boothAttributes = {
     name: seed.boothName,
     location: seed.location,
@@ -165,9 +174,7 @@ async function upsertBusinessAccount(
     accountByBooth &&
     accountByEmail.id !== accountByBooth.id
   ) {
-    throw new Error(
-      `Không thể đồng bộ ${seed.email}: email và booth ${seed.qrCode} đang thuộc về hai tài khoản khác nhau.`,
-    );
+    await userRepo.delete(accountByEmail.id);
   }
 
   const account = accountByBooth ?? accountByEmail;
@@ -205,6 +212,32 @@ async function bootstrap() {
       getRepositoryToken(Business),
     );
     const boothRepo = app.get<Repository<Booth>>(getRepositoryToken(Booth));
+
+    // Dọn dẹp các doanh nghiệp/workshop cũ không còn trong danh sách seed hiện tại
+    const validCompanyNames = new Set(SEED_COMPANIES.map((c) => c.name));
+    const validWorkshopNames = new Set(SEED_WORKSHOPS.map((w) => w.name));
+    const allBusinesses = await businessRepo.find({ relations: ['booths'] });
+    for (const biz of allBusinesses) {
+      if (biz.type === BusinessType.TOTNGHIEP) continue;
+      const isValid =
+        (biz.type === BusinessType.BOOTH && validCompanyNames.has(biz.name)) ||
+        (biz.type === BusinessType.WORKSHOP && validWorkshopNames.has(biz.name));
+      if (!isValid) {
+        const boothIds = biz.booths?.map((b) => b.id) ?? [];
+        if (boothIds.length > 0) {
+          await userRepo
+            .createQueryBuilder()
+            .delete()
+            .where('role = :role AND booth_id IN (:...boothIds)', {
+              role: UserRole.BUSINESS_ADMIN,
+              boothIds,
+            })
+            .execute();
+        }
+        await businessRepo.delete(biz.id);
+        console.log(`- Removed obsolete business: ${biz.name}`);
+      }
+    }
 
     console.log('[seed-shared-accounts] Đồng bộ tài khoản dùng chung...');
     for (const account of [

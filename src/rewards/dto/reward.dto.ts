@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
+  ArrayUnique,
   IsBoolean,
   IsInt,
   IsNotEmpty,
@@ -28,6 +30,18 @@ export class CreateRewardMilestoneDto {
   @IsInt()
   @Min(1)
   requiredBooths: number;
+
+  @ApiPropertyOptional({ default: false, description: 'Trong tổng số booth yêu cầu phải có đủ dấu Tọa đàm kỹ năng nghề nghiệp và Lễ khai mạc' })
+  @IsOptional()
+  @IsBoolean()
+  requiresSpecialStamps?: boolean;
+
+  @ApiPropertyOptional({ type: [String], description: 'UUID các workshop bắt buộc, nằm trong tổng số booth yêu cầu. Mảng rỗng để bỏ yêu cầu.' })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  requiredWorkshopIds?: string[];
 
   @ApiPropertyOptional({ example: 1, default: 0 })
   @IsOptional()
@@ -60,6 +74,18 @@ export class UpdateRewardMilestoneDto {
   @IsInt()
   @Min(1)
   requiredBooths?: number;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  requiresSpecialStamps?: boolean;
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  requiredWorkshopIds?: string[];
 
   @ApiPropertyOptional({ example: 2 })
   @IsOptional()

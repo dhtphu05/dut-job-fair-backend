@@ -1,3 +1,4 @@
+import { normalizeFaculty } from '../common/faculties';
 import * as XLSX from 'xlsx';
 import * as QRCode from 'qrcode';
 import * as path from 'path';
@@ -24,22 +25,6 @@ export interface StudentRecord {
   year?: number;
 }
 
-const FACULTY_MAP: Record<string, string> = {
-  'CK': 'Khoa Cơ khí',
-  'CKGT': 'Khoa Cơ khí Giao thông',
-  'Nhiệt': 'Khoa Công nghệ Nhiệt - Điện lạnh',
-  'CNTT': 'Khoa Công nghệ Thông tin',
-  'Điện': 'Khoa Điện',
-  'ĐTVT': 'Khoa Điện tử - Viễn thông',
-  'Hóa': 'Khoa Hóa',
-  'FAST': 'Khoa Khoa học Công nghệ Tiên tiến (FAST)',
-  'Kiến trúc': 'Khoa Kiến trúc',
-  'Môi trường': 'Khoa Môi trường',
-  'QLDA': 'Khoa Quản lý Dự án',
-  'XDCĐ': 'Khoa Xây dựng Cầu đường',
-  'XDCTT': 'Khoa Xây dựng Công trình thủy',
-  'XDDD': 'Khoa Xây dựng Dân dụng & Công nghiệp',
-};
 
 function normalizeKey(key: string): string {
   return key
@@ -91,10 +76,10 @@ function parseAllSheets(
   }
 
   const selectedSheetKeys = new Set(
-    selectedSheetNames.map((sheetName) => normalizeKey(sheetName)),
+    selectedSheetNames.map((sheetName) => normalizeKey(normalizeFaculty(sheetName))),
   );
   const sheetsToImport = selectedSheetKeys.size
-    ? sheetNames.filter((sheetName) => selectedSheetKeys.has(normalizeKey(sheetName)))
+    ? sheetNames.filter((sheetName) => selectedSheetKeys.has(normalizeKey(normalizeFaculty(sheetName))))
     : sheetNames;
 
   if (selectedSheetKeys.size && sheetsToImport.length === 0) {
@@ -109,7 +94,7 @@ function parseAllSheets(
   for (const sheetName of sheetsToImport) {
     const worksheet = workbook.Sheets[sheetName];
     const rawRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-    const defaultDepartment = FACULTY_MAP[sheetName] || sheetName;
+    const defaultDepartment = normalizeFaculty(sheetName);
 
     for (let i = 0; i < rawRows.length; i++) {
       const row = rawRows[i];
@@ -213,7 +198,7 @@ function parseAllSheets(
         studentCode,
         fullName,
         className: className || undefined,
-        department: department || undefined,
+        department: normalizeFaculty(department) || undefined,
         email: email || undefined,
         phone: phone || undefined,
         major: major || undefined,

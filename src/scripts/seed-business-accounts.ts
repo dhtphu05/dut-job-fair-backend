@@ -18,6 +18,10 @@ function buildBoothCode(index: number): string {
   return `B${String(index + 1).padStart(2, '0')}`;
 }
 
+function workshopEmail(email: string, qrCode: string): string {
+  return email.trim() || `${qrCode.toLowerCase()}@jobfair`;
+}
+
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
 
@@ -27,11 +31,41 @@ async function bootstrap() {
     const boothRepo = app.get<Repository<Booth>>(getRepositoryToken(Booth));
     const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
 
+    // Dọn dẹp các doanh nghiệp/workshop cũ không còn trong danh sách seed hiện tại
+    const validCompanyNames = new Set(SEED_COMPANIES.map((c) => c.name));
+    const validWorkshopNames = new Set(SEED_WORKSHOPS.map((w) => w.name));
+
+    const allBusinesses = await businessRepo.find({ relations: ['booths'] });
+    for (const biz of allBusinesses) {
+      if (biz.type === BusinessType.TOTNGHIEP) continue;
+
+      const isValid =
+        (biz.type === BusinessType.BOOTH && validCompanyNames.has(biz.name)) ||
+        (biz.type === BusinessType.WORKSHOP && validWorkshopNames.has(biz.name));
+
+      if (!isValid) {
+        const boothIds = biz.booths?.map((b) => b.id) ?? [];
+        if (boothIds.length > 0) {
+          await userRepo
+            .createQueryBuilder()
+            .delete()
+            .where('role = :role AND booth_id IN (:...boothIds)', {
+              role: UserRole.BUSINESS_ADMIN,
+              boothIds,
+            })
+            .execute();
+        }
+        await businessRepo.delete(biz.id);
+        console.log(`- Removed obsolete business: ${biz.name}`);
+      }
+    }
+
     console.log(`[seed-business-accounts] Start seeding ${SEED_COMPANIES.length} companies`);
     console.log(`[seed-business-accounts] Default password: ${DEFAULT_PASSWORD}`);
 
     for (const [index, company] of SEED_COMPANIES.entries()) {
       const boothCode = buildBoothCode(index);
+      const qrCode = `BOOTH-${boothCode}`;
       let business = await businessRepo.findOne({ where: { name: company.name } });
 
       if (!business) {
@@ -41,6 +75,7 @@ async function bootstrap() {
             publicId: company.publicId,
             logoUrl: company.logoUrl,
             description: `Gian hàng tuyển dụng tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
+            type: BusinessType.BOOTH,
           }),
         );
         console.log(`+ Business created: ${company.name}`);
@@ -49,11 +84,17 @@ async function bootstrap() {
           publicId: company.publicId,
           logoUrl: company.logoUrl,
           description: `Gian hàng tuyển dụng tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
+          type: BusinessType.BOOTH,
         });
         console.log(`= Business updated: ${company.name}`);
       }
 
       let booth = await boothRepo.findOne({ where: { businessId: business.id } });
+      const conflictingBooth = await boothRepo.findOne({ where: { qrCode } });
+      if (conflictingBooth && conflictingBooth.id !== booth?.id) {
+        await boothRepo.update(conflictingBooth.id, { qrCode: null as unknown as string });
+      }
+
       if (!booth) {
         booth = await boothRepo.save(
           boothRepo.create({
@@ -61,7 +102,8 @@ async function bootstrap() {
             name: `Gian hàng ${company.name}`,
             location: `Khu doanh nghiệp - ${boothCode}`,
             capacity: 50,
-            qrCode: `BOOTH-${boothCode}`,
+            qrCode,
+            type: BoothType.BOOTH,
           }),
         );
         console.log(`+ Booth created: ${booth.name}`);
@@ -70,13 +112,17 @@ async function bootstrap() {
           name: `Gian hàng ${company.name}`,
           location: `Khu doanh nghiệp - ${boothCode}`,
           capacity: 50,
-          qrCode: `BOOTH-${boothCode}`,
+          qrCode,
+          type: BoothType.BOOTH,
         });
         console.log(`= Booth updated: ${company.name}`);
       }
 
       const existingByEmail = await userRepo.findOne({ where: { email: company.email } });
       const existingByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
+      if (existingByEmail && existingByBooth && existingByEmail.id !== existingByBooth.id) {
+        await userRepo.delete(existingByEmail.id);
+      }
       const targetUser = existingByBooth ?? existingByEmail;
 
       if (!targetUser) {
@@ -106,6 +152,7 @@ async function bootstrap() {
 
     console.log(`[seed-business-accounts] Start seeding ${SEED_WORKSHOPS.length} workshops`);
     for (const workshop of SEED_WORKSHOPS) {
+      const email = workshopEmail(workshop.email, workshop.qrCode);
       let business = await businessRepo.findOne({ where: { name: workshop.name } });
 
       if (!business) {
@@ -130,6 +177,11 @@ async function bootstrap() {
       }
 
       let booth = await boothRepo.findOne({ where: { businessId: business.id } });
+      const conflictingBooth = await boothRepo.findOne({ where: { qrCode: workshop.qrCode } });
+      if (conflictingBooth && conflictingBooth.id !== booth?.id) {
+        await boothRepo.update(conflictingBooth.id, { qrCode: null as unknown as string });
+      }
+
       if (!booth) {
         booth = await boothRepo.save(
           boothRepo.create({
@@ -153,14 +205,17 @@ async function bootstrap() {
         console.log(`= Workshop booth updated: ${workshop.name}`);
       }
 
-      const existingByEmail = await userRepo.findOne({ where: { email: workshop.email } });
+      const existingByEmail = await userRepo.findOne({ where: { email } });
       const existingByBooth = await userRepo.findOne({ where: { boothId: booth.id } });
+      if (existingByEmail && existingByBooth && existingByEmail.id !== existingByBooth.id) {
+        await userRepo.delete(existingByEmail.id);
+      }
       const targetUser = existingByBooth ?? existingByEmail;
 
       if (!targetUser) {
         await userRepo.save(
           userRepo.create({
-            email: workshop.email,
+            email,
             passwordHash,
             name: workshop.name,
             role: UserRole.BUSINESS_ADMIN,
@@ -168,17 +223,17 @@ async function bootstrap() {
             boothId: booth.id,
           }),
         );
-        console.log(`+ Workshop account created: ${workshop.email}`);
+        console.log(`+ Workshop account created: ${email}`);
       } else {
         await userRepo.update(targetUser.id, {
-          email: workshop.email,
+          email,
           passwordHash,
           name: workshop.name,
           role: UserRole.BUSINESS_ADMIN,
           isActive: true,
           boothId: booth.id,
         });
-        console.log(`= Workshop account reset: ${workshop.email}`);
+        console.log(`= Workshop account reset: ${email}`);
       }
     }
 
@@ -187,7 +242,7 @@ async function bootstrap() {
       console.log(`- ${company.email} / ${DEFAULT_PASSWORD}`);
     }
     for (const workshop of SEED_WORKSHOPS) {
-      console.log(`- ${workshop.email} / ${DEFAULT_PASSWORD}`);
+      console.log(`- ${workshopEmail(workshop.email, workshop.qrCode)} / ${DEFAULT_PASSWORD}`);
     }
   } finally {
     await app.close();

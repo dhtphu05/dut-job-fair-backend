@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository, In } from 'typeorm';
+import { SPECIAL_STAMPS, REWARD_COUNT_SQL, rewardRequirement, requiredWorkshopCount } from './special-stamps';
+import { Booth, BoothType } from '../entities/booth.entity';
 import { Checkin } from '../entities/checkin.entity';
 import { RewardClaim } from '../entities/reward-claim.entity';
 import { RewardMilestone } from '../entities/reward-milestone.entity';
@@ -40,6 +42,8 @@ type RewardMilestoneStudentRow = {
   year: number | null;
   school_name: string | null;
   checked_in_booths: string | number;
+  regular_booths: string | number;
+  special_stamps: string | number;
   derived_status: RewardMilestoneStudentStatus;
   claim_id: string | null;
   claim_request_code: string | null;
@@ -80,18 +84,62 @@ export class RewardsService {
   ) {}
 
   async getMilestones(includeInactive = true) {
-    return this.milestoneRepo.find({
+    const milestones = await this.milestoneRepo.find({
       where: includeInactive ? {} : { isActive: true },
       order: { sortOrder: 'ASC', requiredBooths: 'ASC', createdAt: 'ASC' },
     });
+    if (milestones.some(m => m.requiresSpecialStamps && m.requiredWorkshopIds == null)) {
+      const legacy = await this.dataSource.manager.findBy(Booth, { qrCode: In(SPECIAL_STAMPS.map(s => s.qrCode)), type: BoothType.WORKSHOP });
+      // Keep legacy requirements locked if either seeded workshop is missing.
+      if (legacy.length === 2) for (const m of milestones) {
+        if (m.requiresSpecialStamps && m.requiredWorkshopIds == null) m.requiredWorkshopIds = legacy.map(b => b.id);
+      }
+    }
+    return milestones;
+  }
+
+  private validateRequirement(requiredBooths: number, requiresSpecialStamps?: boolean, requiredWorkshopIds?: string[] | null) {
+    if (requiredBooths < requiredWorkshopCount({ requiresSpecialStamps, requiredWorkshopIds })) {
+      throw new BadRequestException('Số workshop bắt buộc không được vượt quá tổng số booth yêu cầu');
+    }
+  }
+
+  private async validateWorkshops(ids?: string[] | null) {
+    if (!ids?.length) return;
+    const workshops = await this.dataSource.manager.findBy(Booth, { id: In(ids), type: BoothType.WORKSHOP });
+    if (workshops.length !== ids.length) throw new BadRequestException('Chỉ được chọn các workshop đang tồn tại, không chọn trùng');
+  }
+
+  private async getRewardCounts(studentId: string, manager: EntityManager = this.checkinRepo.manager) {
+    const row = await manager.createQueryBuilder(Checkin, 'c')
+      .leftJoin('c.booth', 'b')
+      .select(REWARD_COUNT_SQL.total, 'total')
+      .addSelect(REWARD_COUNT_SQL.regular, 'regular')
+      .addSelect(REWARD_COUNT_SQL.special, 'special')
+      .addSelect(REWARD_COUNT_SQL.workshopIds, 'workshopIds')
+      .where('c.studentId = :studentId', { studentId })
+      .getRawOne<{ total: string; regular: string; special: string; workshopIds: string[] }>();
+    return { total: Number(row?.total ?? 0), regular: Number(row?.regular ?? 0), special: Number(row?.special ?? 0), workshopIds: row?.workshopIds ?? [] };
+  }
+
+  private async assertSpecialRequirement(milestone: RewardMilestone, studentId: string, manager?: EntityManager) {
+    if (!requiredWorkshopCount(milestone)) return;
+    const counts = await this.getRewardCounts(studentId, manager);
+    if (!rewardRequirement(milestone, counts).eligible) {
+      throw new BadRequestException('Chưa đủ booth thường và các workshop bắt buộc của mốc quà');
+    }
   }
 
   async createMilestone(dto: CreateRewardMilestoneDto) {
+    this.validateRequirement(dto.requiredBooths, dto.requiresSpecialStamps, dto.requiredWorkshopIds);
+    await this.validateWorkshops(dto.requiredWorkshopIds);
     return this.milestoneRepo.save(
       this.milestoneRepo.create({
         name: dto.name,
         description: dto.description ?? null,
         requiredBooths: dto.requiredBooths,
+        requiresSpecialStamps: dto.requiredWorkshopIds != null ? dto.requiredWorkshopIds.length > 0 : dto.requiresSpecialStamps ?? false,
+        requiredWorkshopIds: dto.requiredWorkshopIds ?? null,
         sortOrder: dto.sortOrder ?? 0,
         isActive: dto.isActive ?? true,
       }),
@@ -101,8 +149,13 @@ export class RewardsService {
   async updateMilestone(id: string, dto: UpdateRewardMilestoneDto) {
     const milestone = await this.milestoneRepo.findOne({ where: { id } });
     if (!milestone) throw new NotFoundException('Mốc quà không tồn tại');
+    const ids = dto.requiredWorkshopIds ?? (dto.requiresSpecialStamps === false ? [] : milestone.requiredWorkshopIds);
+    this.validateRequirement(dto.requiredBooths ?? milestone.requiredBooths, dto.requiresSpecialStamps ?? milestone.requiresSpecialStamps, ids);
+    await this.validateWorkshops(dto.requiredWorkshopIds);
     Object.assign(milestone, {
       ...dto,
+      requiredWorkshopIds: ids,
+      requiresSpecialStamps: ids != null ? ids.length > 0 : dto.requiresSpecialStamps ?? milestone.requiresSpecialStamps,
       description: dto.description ?? milestone.description,
     });
     return this.milestoneRepo.save(milestone);
@@ -120,6 +173,10 @@ export class RewardsService {
         name: milestone.name,
         description: milestone.description,
         requiredBooths: milestone.requiredBooths,
+        requiresSpecialStamps: milestone.requiresSpecialStamps,
+        requiredWorkshopIds: milestone.requiredWorkshopIds,
+        missingSpecialStamps: milestone.missingSpecialStamps,
+        remainingBooths: milestone.remainingBooths,
         eligible: milestone.eligible,
         claimed: milestone.claimed,
         pendingClaim: milestone.pendingClaim,
@@ -164,20 +221,16 @@ export class RewardsService {
       );
     }
 
-    const [milestones, checkedInBoothsRaw, claims] = await Promise.all([
+    const [milestones, counts, claims] = await Promise.all([
       this.getMilestones(false),
-      this.checkinRepo
-        .createQueryBuilder('c')
-        .select('COUNT(DISTINCT c.boothId)', 'count')
-        .where('c.studentId = :studentId', { studentId: student.id })
-        .getRawOne<{ count: string }>(),
+      this.getRewardCounts(student.id),
       this.claimRepo.find({
         where: { studentId: student.id },
         relations: ['milestone'],
       }),
     ]);
 
-    const checkedInBooths = Number(checkedInBoothsRaw?.count ?? 0);
+    const checkedInBooths = counts.total;
     const claimByMilestoneId = new Map(
       claims
         .sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime())
@@ -186,7 +239,8 @@ export class RewardsService {
 
     const milestoneProgress = milestones.map((milestone) => {
       const claim = claimByMilestoneId.get(milestone.id);
-      const eligible = checkedInBooths >= milestone.requiredBooths;
+      const requirement = rewardRequirement(milestone, counts);
+      const { eligible } = requirement;
       const pendingClaim =
         claim?.status === 'pending'
           ? {
@@ -203,9 +257,10 @@ export class RewardsService {
         name: milestone.name,
         description: milestone.description,
         requiredBooths: milestone.requiredBooths,
+        requiresSpecialStamps: milestone.requiresSpecialStamps,
+        requiredWorkshopIds: milestone.requiredWorkshopIds,
         sortOrder: milestone.sortOrder,
         isActive: milestone.isActive,
-        eligible,
         claimed: claim?.status === 'claimed',
         status:
           claim?.status === 'claimed'
@@ -216,16 +271,11 @@ export class RewardsService {
                 ? 'eligible'
                 : 'locked',
         pendingClaim,
-        remainingBooths:
-          checkedInBooths >= milestone.requiredBooths
-            ? 0
-            : milestone.requiredBooths - checkedInBooths,
+        ...requirement,
       };
     });
 
-    const nextMilestone = milestones.find(
-      (milestone) => checkedInBooths < milestone.requiredBooths,
-    );
+    const nextMilestone = milestoneProgress.find((milestone) => !milestone.eligible);
 
     return {
       studentCode: student.studentCode,
@@ -237,7 +287,10 @@ export class RewardsService {
             id: nextMilestone.id,
             name: nextMilestone.name,
             requiredBooths: nextMilestone.requiredBooths,
-            remainingBooths: nextMilestone.requiredBooths - checkedInBooths,
+            remainingBooths: nextMilestone.remainingBooths,
+            requiresSpecialStamps: nextMilestone.requiresSpecialStamps,
+            requiredWorkshopIds: nextMilestone.requiredWorkshopIds,
+            missingSpecialStamps: nextMilestone.missingSpecialStamps,
           }
         : null,
     };
@@ -257,16 +310,10 @@ export class RewardsService {
     if (!milestone) throw new NotFoundException('Mốc quà không tồn tại');
 
     return this.dataSource.transaction(async (manager) => {
-      const checkedInBoothsRaw = await manager
-        .createQueryBuilder(Checkin, 'c')
-        .select('COUNT(DISTINCT c.boothId)', 'count')
-        .where('c.studentId = :studentId', { studentId: student.id })
-        .getRawOne<{ count: string }>();
-      const checkedInBooths = Number(checkedInBoothsRaw?.count ?? 0);
-
-      if (checkedInBooths < milestone.requiredBooths) {
+      const counts = await this.getRewardCounts(student.id, manager);
+      if (!rewardRequirement(milestone, counts).eligible) {
         throw new BadRequestException(
-          `Bạn chưa đủ điều kiện nhận quà này. Cần tối thiểu ${milestone.requiredBooths} booth check-in.`,
+          `Bạn chưa đủ điều kiện nhận quà này. Cần ${milestone.requiredBooths} booth check-in${requiredWorkshopCount(milestone) ? ", gồm " + (milestone.requiredBooths - requiredWorkshopCount(milestone)) + " booth thường và đủ " + requiredWorkshopCount(milestone) + " workshop bắt buộc" : ""}.`,
         );
       }
 
@@ -300,6 +347,8 @@ export class RewardsService {
             id: milestone.id,
             name: milestone.name,
             requiredBooths: milestone.requiredBooths,
+            requiresSpecialStamps: milestone.requiresSpecialStamps,
+        requiredWorkshopIds: milestone.requiredWorkshopIds,
           },
         };
       }
@@ -340,6 +389,8 @@ export class RewardsService {
           id: milestone.id,
           name: milestone.name,
           requiredBooths: milestone.requiredBooths,
+          requiresSpecialStamps: milestone.requiresSpecialStamps,
+        requiredWorkshopIds: milestone.requiredWorkshopIds,
         },
       };
     });
@@ -399,6 +450,7 @@ export class RewardsService {
       throw new BadRequestException('Yêu cầu nhận quà đã hết hạn');
     }
 
+    await this.assertSpecialRequirement(claim.milestone, claim.student.id);
     claim.status = 'claimed';
     claim.claimedAt = new Date();
     claim.confirmedByUserId = confirmedByUser.id;
@@ -539,6 +591,7 @@ export class RewardsService {
           };
         }
 
+        await this.assertSpecialRequirement(claim.milestone, claim.student.id, manager);
         claim.status = 'claimed';
         claim.claimedAt = new Date();
         claim.confirmedByUserId = confirmedByUser.id;
@@ -640,16 +693,23 @@ export class RewardsService {
 
     await this.expirePendingClaimsForMilestone(milestoneId);
 
-    const baseParams = [milestoneId, milestone.requiredBooths] as Array<
-      string | number
-    >;
+    const baseParams: Array<string | number | string[] | null> = [milestoneId, milestone.requiredBooths, milestone.requiredWorkshopIds ?? null];
     const { clause: filterClause, params: filterParams } =
       this.buildMilestoneStudentsFilterClause(statusFilter, search, baseParams);
 
+    const specialCount = requiredWorkshopCount(milestone);
+    const specialSql = 'COUNT(DISTINCT c.booth_id) FILTER (WHERE c.booth_id = ANY($3::uuid[]))::int';
+    const selectedSpecialSql = `CASE WHEN $3::uuid[] IS NULL THEN ${REWARD_COUNT_SQL.special} ELSE ${specialSql} END`;
+    const eligibleSql = specialCount > 0
+      ? `COALESCE(bc.regular_booths, 0) >= $2 - ${specialCount} AND COALESCE(bc.special_stamps, 0) = ${specialCount}`
+      : 'COALESCE(bc.checked_in_booths, 0) >= $2';
     const dataQuery = `
       WITH booth_counts AS (
-        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        SELECT c.student_id, ${REWARD_COUNT_SQL.total} AS checked_in_booths,
+          ${REWARD_COUNT_SQL.regular} AS regular_booths,
+          ${selectedSpecialSql} AS special_stamps
         FROM checkins c
+        LEFT JOIN booths b ON b.id = c.booth_id
         GROUP BY c.student_id
       ),
       latest_claims AS (
@@ -679,6 +739,8 @@ export class RewardsService {
           s.year,
           sch.name AS school_name,
           COALESCE(bc.checked_in_booths, 0) AS checked_in_booths,
+          COALESCE(bc.regular_booths, 0) AS regular_booths,
+          COALESCE(bc.special_stamps, 0) AS special_stamps,
           lc.id AS claim_id,
           lc.request_code AS claim_request_code,
           lc.status AS claim_status,
@@ -695,7 +757,7 @@ export class RewardsService {
             WHEN lc.status = 'pending' THEN 'pending'
             WHEN lc.status = 'expired' THEN 'expired'
             WHEN lc.status = 'cancelled' THEN 'cancelled'
-            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            WHEN ${eligibleSql} THEN 'eligible'
             ELSE 'locked'
           END AS derived_status
         FROM students s
@@ -717,8 +779,11 @@ export class RewardsService {
 
     const totalQuery = `
       WITH booth_counts AS (
-        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        SELECT c.student_id, ${REWARD_COUNT_SQL.total} AS checked_in_booths,
+          ${REWARD_COUNT_SQL.regular} AS regular_booths,
+          ${selectedSpecialSql} AS special_stamps
         FROM checkins c
+        LEFT JOIN booths b ON b.id = c.booth_id
         GROUP BY c.student_id
       ),
       latest_claims AS (
@@ -741,13 +806,15 @@ export class RewardsService {
           s.student_code,
           s.full_name,
           COALESCE(bc.checked_in_booths, 0) AS checked_in_booths,
+          COALESCE(bc.regular_booths, 0) AS regular_booths,
+          COALESCE(bc.special_stamps, 0) AS special_stamps,
           CASE
             WHEN lc.status = 'claimed' THEN 'claimed'
             WHEN lc.status = 'pending' AND lc.expires_at IS NOT NULL AND lc.expires_at <= NOW() THEN 'expired'
             WHEN lc.status = 'pending' THEN 'pending'
             WHEN lc.status = 'expired' THEN 'expired'
             WHEN lc.status = 'cancelled' THEN 'cancelled'
-            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            WHEN ${eligibleSql} THEN 'eligible'
             ELSE 'locked'
           END AS derived_status
         FROM students s
@@ -761,8 +828,11 @@ export class RewardsService {
 
     const summaryQuery = `
       WITH booth_counts AS (
-        SELECT c.student_id, COUNT(DISTINCT c.booth_id)::int AS checked_in_booths
+        SELECT c.student_id, ${REWARD_COUNT_SQL.total} AS checked_in_booths,
+          ${REWARD_COUNT_SQL.regular} AS regular_booths,
+          ${selectedSpecialSql} AS special_stamps
         FROM checkins c
+        LEFT JOIN booths b ON b.id = c.booth_id
         GROUP BY c.student_id
       ),
       latest_claims AS (
@@ -782,7 +852,7 @@ export class RewardsService {
             WHEN lc.status = 'pending' THEN 'pending'
             WHEN lc.status = 'expired' THEN 'expired'
             WHEN lc.status = 'cancelled' THEN 'cancelled'
-            WHEN COALESCE(bc.checked_in_booths, 0) >= $2 THEN 'eligible'
+            WHEN ${eligibleSql} THEN 'eligible'
             ELSE 'locked'
           END AS derived_status
         FROM students s
@@ -821,6 +891,8 @@ export class RewardsService {
         id: milestone.id,
         name: milestone.name,
         requiredBooths: milestone.requiredBooths,
+        requiresSpecialStamps: milestone.requiresSpecialStamps,
+        requiredWorkshopIds: milestone.requiredWorkshopIds,
         description: milestone.description,
         isActive: milestone.isActive,
       },
@@ -836,7 +908,7 @@ export class RewardsService {
         search: search ? search : null,
       },
       items: rows.map((row) =>
-        this.mapMilestoneStudentRowToItem(row, milestone.requiredBooths),
+        this.mapMilestoneStudentRowToItem(row, milestone),
       ),
       total,
       page,
@@ -865,7 +937,7 @@ export class RewardsService {
   private buildMilestoneStudentsFilterClause(
     statusFilter: Exclude<RewardMilestoneStudentsQueryDto['status'], undefined>,
     search: string,
-    baseParams: Array<string | number>,
+    baseParams: Array<string | number | string[] | null>,
   ) {
     const conditions = [`derived_status <> 'locked'`];
     const params = [...baseParams];
@@ -890,10 +962,14 @@ export class RewardsService {
 
   private mapMilestoneStudentRowToItem(
     row: RewardMilestoneStudentRow,
-    requiredBooths: number,
+    milestone: RewardMilestone,
   ) {
+    const { requiredBooths } = milestone;
     const checkedInBooths = Number(row.checked_in_booths ?? 0);
-    const eligible = checkedInBooths >= requiredBooths;
+    const requirement = rewardRequirement(milestone, {
+      total: checkedInBooths, regular: Number(row.regular_booths ?? 0), special: Number(row.special_stamps ?? 0),
+    });
+    const { eligible } = requirement;
     const status = row.derived_status === 'locked' ? 'eligible' : row.derived_status;
 
     return {
@@ -911,8 +987,7 @@ export class RewardsService {
       },
       checkedInBooths,
       requiredBooths,
-      remainingBooths:
-        checkedInBooths >= requiredBooths ? 0 : requiredBooths - checkedInBooths,
+      ...requirement,
       eligible,
       status,
       claim:

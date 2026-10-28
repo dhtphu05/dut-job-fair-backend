@@ -32,8 +32,9 @@ export class ScannerService {
   // POST /scanner/scan  – QR scan with MSSV (student_code)
   async scan(dto: ScanDto, user: AuthenticatedScannerUser) {
     const boothId = this.ensureBoothAccess(dto.boothId, user);
+    const studentCode = this.normalizeStudentCode(dto.visitorCode);
     const student = await this.studentRepo.findOne({
-      where: { studentCode: dto.visitorCode },
+      where: { studentCode },
     });
     if (!student) {
       return {
@@ -256,10 +257,15 @@ export class ScannerService {
   }
 
   private async upsertStudentFromQr(dto: QrScanDto) {
+    const studentCode = this.normalizeStudentCode(dto.ma_so_sinh_vien);
+    const fullName = dto.ho_ten.trim();
+    if (!fullName) {
+      throw new BadRequestException('Họ tên sinh viên không được để trống');
+    }
     const studentPayload: Partial<Student> = {
-      studentCode: dto.ma_so_sinh_vien.trim(),
-      fullName: dto.ho_ten.trim(),
-      year: this.deriveYearFromStudentCode(dto.ma_so_sinh_vien),
+      studentCode,
+      fullName,
+      year: this.deriveYearFromStudentCode(studentCode),
     };
 
     const className = this.normalizeOptionalText(dto.lop);
@@ -289,12 +295,20 @@ export class ScannerService {
     await this.studentRepo.upsert(studentPayload, ['studentCode']);
 
     const student = await this.studentRepo.findOne({
-      where: { studentCode: dto.ma_so_sinh_vien },
+      where: { studentCode },
     });
     if (!student) {
       throw new BadRequestException('Không thể đồng bộ thông tin sinh viên');
     }
     return student;
+  }
+
+  private normalizeStudentCode(value: string) {
+    const studentCode = value.trim();
+    if (!studentCode) {
+      throw new BadRequestException('MSSV không được để trống');
+    }
+    return studentCode;
   }
 
   private normalizeOptionalText(value?: string) {

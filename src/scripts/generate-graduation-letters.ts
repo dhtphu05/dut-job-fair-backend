@@ -1,3 +1,4 @@
+import { normalizeFaculty } from '../common/faculties';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as QRCode from 'qrcode';
@@ -44,22 +45,6 @@ interface SkippedRow {
   reason: string;
 }
 
-const FACULTY_MAP: Record<string, string> = {
-  CK: 'Khoa Cơ khí',
-  CKGT: 'Khoa Cơ khí Giao thông',
-  Nhiệt: 'Khoa Công nghệ Nhiệt - Điện lạnh',
-  CNTT: 'Khoa Công nghệ Thông tin',
-  Điện: 'Khoa Điện',
-  ĐTVT: 'Khoa Điện tử - Viễn thông',
-  Hóa: 'Khoa Hóa',
-  FAST: 'Khoa Khoa học Công nghệ Tiên tiến (FAST)',
-  'Kiến trúc': 'Khoa Kiến trúc',
-  'Môi trường': 'Khoa Môi trường',
-  QLDA: 'Khoa Quản lý Dự án',
-  XDCĐ: 'Khoa Xây dựng Cầu đường',
-  XDCTT: 'Khoa Xây dựng Công trình thủy',
-  XDDD: 'Khoa Xây dựng Dân dụng & Công nghiệp',
-};
 
 function normalizeKey(value: string): string {
   return value
@@ -204,12 +189,12 @@ function isSelected(student: StudentRecord, faculties: string[]): boolean {
   if (!faculties.length) return true;
   const candidates = [
     normalizeKey(student.sheetName),
-    normalizeKey(student.department),
-    normalizeKey(FACULTY_MAP[student.sheetName] || ''),
+    normalizeKey(normalizeFaculty(student.department)),
+    normalizeKey(normalizeFaculty(student.sheetName)),
   ];
 
   return faculties.some((faculty) =>
-    candidates.includes(normalizeKey(faculty)),
+    candidates.includes(normalizeKey(normalizeFaculty(faculty))),
   );
 }
 
@@ -315,8 +300,8 @@ function parseStudents(
         className: defaultIfBlank(
           findValue(normalized, ['lop', 'classname', 'class']),
         ),
-        department: defaultIfBlank(
-          findValue(normalized, ['khoa', 'department', 'faculty']),
+        department: normalizeFaculty(
+          findValue(normalized, ['khoa', 'department', 'faculty']) || sheetName,
         ),
         email: defaultIfBlank(
           findContainsValue(normalized, 'email') ||
