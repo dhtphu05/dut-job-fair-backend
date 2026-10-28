@@ -65,7 +65,7 @@ async function bootstrap() {
       );
       console.log(`    + Workshop booth: ${booth.name}`);
 
-      const workshopEmail = `${randomLetters(3)}-workshop@jobfair`;
+      const workshopEmail = workshop.email.trim() || `${randomLetters(3)}-workshop@jobfair.com`;
       const safeName = workshop.name.replace(/"/g, "'");
       workshopCredentials.push(`"${safeName}",${workshopEmail},${workshopPasswordBase}`);
 

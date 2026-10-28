@@ -19,7 +19,7 @@ function buildBoothCode(index: number): string {
 }
 
 function workshopEmail(email: string, qrCode: string): string {
-  return email.trim() || `${qrCode.toLowerCase()}@jobfair`;
+  return email.trim() || `${qrCode.toLowerCase()}@jobfair.com`;
 }
 
 async function bootstrap() {

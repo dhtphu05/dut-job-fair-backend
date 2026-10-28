@@ -3,14 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppModule } from '../app.module';
-import { Booth, BoothType } from '../entities/booth.entity';
-import { Business, BusinessType } from '../entities/business.entity';
 import { User, UserRole } from '../entities/user.entity';
-import {
-  DEMO_EVENT_DATE,
-  SEED_COMPANIES,
-  SEED_WORKSHOPS,
-} from '../seed-data/companies';
 
 type AccountSeed = {
   email: string;
@@ -20,70 +13,16 @@ type AccountSeed = {
   boothId?: string | null;
 };
 
-type BusinessAccountSeed = {
-  businessName: string;
-  businessType: BusinessType;
-  publicId: string | null;
-  logoUrl: string | null;
-  description: string;
-  boothName: string;
-  boothType: BoothType;
-  location: string;
-  capacity: number;
-  qrCode: string;
-  email: string;
-};
+const DEFAULT_ADMIN_PASSWORD = 'AdminJobfair2026';
 
-function requiredPassword(variableName: string): string {
-  const password = process.env[variableName]?.trim();
-
-  if (!password) {
-    throw new Error(
-      `Thiếu ${variableName}. Hãy đặt cùng giá trị cho local .env và secret của production.`,
-    );
-  }
+function resolveAdminPassword(): string {
+  const password = process.env.SEED_ADMIN_PASSWORD?.trim() || DEFAULT_ADMIN_PASSWORD;
 
   if (password.length < 6) {
-    throw new Error(`${variableName} phải có ít nhất 6 ký tự.`);
+    throw new Error('SEED_ADMIN_PASSWORD phải có ít nhất 6 ký tự.');
   }
 
   return password;
-}
-
-function workshopEmail(email: string, qrCode: string): string {
-  return email.trim() || `${qrCode.toLowerCase()}@jobfair`;
-}
-
-function getBusinessAccountSeeds(): BusinessAccountSeed[] {
-  const companySeeds = SEED_COMPANIES.map((company, index) => ({
-    businessName: company.name,
-    businessType: BusinessType.BOOTH,
-    publicId: company.publicId || null,
-    logoUrl: company.logoUrl || null,
-    description: `Gian hàng tuyển dụng tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
-    boothName: company.name,
-    boothType: BoothType.BOOTH,
-    location: `Khu doanh nghiệp - B${String(index + 1).padStart(2, '0')}`,
-    capacity: 50,
-    qrCode: `BOOTH-B${String(index + 1).padStart(2, '0')}`,
-    email: company.email,
-  }));
-
-  const workshopSeeds = SEED_WORKSHOPS.map((workshop) => ({
-    businessName: workshop.name,
-    businessType: BusinessType.WORKSHOP,
-    publicId: workshop.publicId || null,
-    logoUrl: workshop.logoUrl || null,
-    description: `Hội thảo chuyên đề tại DUT Job Fair ${DEMO_EVENT_DATE}.`,
-    boothName: workshop.boothName,
-    boothType: BoothType.WORKSHOP,
-    location: workshop.location,
-    capacity: workshop.capacity,
-    qrCode: workshop.qrCode,
-    email: workshopEmail(workshop.email, workshop.qrCode),
-  }));
-
-  return [...companySeeds, ...workshopSeeds];
 }
 
 async function upsertUser(
@@ -111,136 +50,16 @@ async function upsertUser(
   console.log(`+ Created account: ${account.email}`);
 }
 
-async function upsertBusinessAccount(
-  userRepo: Repository<User>,
-  businessRepo: Repository<Business>,
-  boothRepo: Repository<Booth>,
-  seed: BusinessAccountSeed,
-  passwordHash: string,
-): Promise<void> {
-  let business = await businessRepo.findOne({
-    where: { name: seed.businessName },
-  });
-  const businessAttributes = {
-    publicId: seed.publicId,
-    logoUrl: seed.logoUrl,
-    description: seed.description,
-    type: seed.businessType,
-  };
-
-  if (business) {
-    await businessRepo.update(business.id, businessAttributes);
-  } else {
-    business = await businessRepo.save(
-      businessRepo.create({ name: seed.businessName, ...businessAttributes }),
-    );
-  }
-
-  let booth = await boothRepo.findOne({
-    where: { businessId: business.id },
-  });
-  const conflictingBooth = await boothRepo.findOne({
-    where: { qrCode: seed.qrCode },
-  });
-  if (conflictingBooth && conflictingBooth.id !== booth?.id) {
-    await boothRepo.update(conflictingBooth.id, {
-      qrCode: null as unknown as string,
-    });
-  }
-
-  const boothAttributes = {
-    name: seed.boothName,
-    location: seed.location,
-    capacity: seed.capacity,
-    qrCode: seed.qrCode,
-    type: seed.boothType,
-  };
-
-  if (booth) {
-    await boothRepo.update(booth.id, boothAttributes);
-  } else {
-    booth = await boothRepo.save(
-      boothRepo.create({ businessId: business.id, ...boothAttributes }),
-    );
-  }
-
-  const [accountByEmail, accountByBooth] = await Promise.all([
-    userRepo.findOne({ where: { email: seed.email } }),
-    userRepo.findOne({ where: { boothId: booth.id } }),
-  ]);
-
-  if (
-    accountByEmail &&
-    accountByBooth &&
-    accountByEmail.id !== accountByBooth.id
-  ) {
-    await userRepo.delete(accountByEmail.id);
-  }
-
-  const account = accountByBooth ?? accountByEmail;
-  const accountAttributes = {
-    email: seed.email,
-    name: seed.businessName,
-    role: UserRole.BUSINESS_ADMIN,
-    passwordHash,
-    boothId: booth.id,
-    isActive: true,
-  };
-
-  if (account) {
-    await userRepo.update(account.id, accountAttributes);
-    console.log(`= Updated account: ${seed.email}`);
-  } else {
-    await userRepo.save(userRepo.create(accountAttributes));
-    console.log(`+ Created account: ${seed.email}`);
-  }
-}
-
 async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
 
   try {
-    // ConfigModule loads .env while the Nest application context is created.
-    const adminPassword = requiredPassword('SEED_ADMIN_PASSWORD');
-    const businessPassword = requiredPassword('SEED_BUSINESS_PASSWORD');
-    const [adminPasswordHash, businessPasswordHash] = await Promise.all([
-      bcrypt.hash(adminPassword, 10),
-      bcrypt.hash(businessPassword, 10),
-    ]);
+    const adminPassword = resolveAdminPassword();
+    const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
     const userRepo = app.get<Repository<User>>(getRepositoryToken(User));
-    const businessRepo = app.get<Repository<Business>>(
-      getRepositoryToken(Business),
-    );
-    const boothRepo = app.get<Repository<Booth>>(getRepositoryToken(Booth));
 
-    // Dọn dẹp các doanh nghiệp/workshop cũ không còn trong danh sách seed hiện tại
-    const validCompanyNames = new Set(SEED_COMPANIES.map((c) => c.name));
-    const validWorkshopNames = new Set(SEED_WORKSHOPS.map((w) => w.name));
-    const allBusinesses = await businessRepo.find({ relations: ['booths'] });
-    for (const biz of allBusinesses) {
-      if (biz.type === BusinessType.TOTNGHIEP) continue;
-      const isValid =
-        (biz.type === BusinessType.BOOTH && validCompanyNames.has(biz.name)) ||
-        (biz.type === BusinessType.WORKSHOP && validWorkshopNames.has(biz.name));
-      if (!isValid) {
-        const boothIds = biz.booths?.map((b) => b.id) ?? [];
-        if (boothIds.length > 0) {
-          await userRepo
-            .createQueryBuilder()
-            .delete()
-            .where('role = :role AND booth_id IN (:...boothIds)', {
-              role: UserRole.BUSINESS_ADMIN,
-              boothIds,
-            })
-            .execute();
-        }
-        await businessRepo.delete(biz.id);
-        console.log(`- Removed obsolete business: ${biz.name}`);
-      }
-    }
-
-    console.log('[seed-shared-accounts] Đồng bộ tài khoản dùng chung...');
-    for (const account of [
+    console.log(`[seed-shared-accounts] Đồng bộ tài khoản admin cục bộ (password: ${adminPassword})...`);
+    const accounts: AccountSeed[] = [
       {
         email: 'checkin@admin.com',
         name: 'School Admin',
@@ -259,24 +78,17 @@ async function bootstrap() {
         role: UserRole.BOOTH_STAFF,
         passwordHash: adminPasswordHash,
       },
-    ]) {
+    ];
+
+    for (const account of accounts) {
       await upsertUser(userRepo, account);
     }
 
-    const businessAccountSeeds = getBusinessAccountSeeds();
-    for (const seed of businessAccountSeeds) {
-      await upsertBusinessAccount(
-        userRepo,
-        businessRepo,
-        boothRepo,
-        seed,
-        businessPasswordHash,
-      );
+    console.log('\nDanh sach tai khoan admin cuc bo:');
+    for (const account of accounts) {
+      console.log(`- ${account.email} / ${adminPassword}`);
     }
-
-    console.log(
-      `[seed-shared-accounts] Hoàn tất: 3 tài khoản nội bộ và ${businessAccountSeeds.length} tài khoản doanh nghiệp/hội thảo.`,
-    );
+    console.log('[seed-shared-accounts] Hoàn tất: 3 tài khoản nội bộ.');
   } finally {
     await app.close();
   }

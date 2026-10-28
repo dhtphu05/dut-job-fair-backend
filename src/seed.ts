@@ -142,7 +142,7 @@ async function bootstrap() {
     const rewardClaimRepo = app.get<Repository<RewardClaim>>(getRepositoryToken(RewardClaim));
     const rewardMilestoneRepo = app.get<Repository<RewardMilestone>>(getRepositoryToken(RewardMilestone));
 
-    const defaultPassword = 'password123';
+    const defaultPassword = 'AdminJobfair2026';
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
     const baseUsers = [
