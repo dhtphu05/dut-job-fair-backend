@@ -37,12 +37,14 @@ export function rewardRequirement(
 }
 
 // Only constants defined above are interpolated; no request data enters this SQL.
-const specialCodesSql = SPECIAL_STAMPS.map((stamp) => `'${stamp.qrCode}'`).join(
-  ', ',
-);
+const specialCodesSql = [
+  ...SPECIAL_STAMPS.map((stamp) => `'${stamp.qrCode}'`),
+  `'WORKSHOP-01'`,
+  `'WORKSHOP-02'`,
+].join(', ');
 export const REWARD_COUNT_SQL = {
   total: 'COUNT(DISTINCT c.booth_id)::int',
   regular: `COUNT(DISTINCT c.booth_id) FILTER (WHERE b.type = 'booth' AND (b.qr_code IS NULL OR b.qr_code NOT IN (${specialCodesSql})))::int`,
-  special: `COUNT(DISTINCT b.qr_code) FILTER (WHERE b.qr_code IN (${specialCodesSql}))::int`,
+  special: `COUNT(DISTINCT c.booth_id) FILTER (WHERE b.type = 'workshop' OR b.qr_code IN (${specialCodesSql}))::int`,
   workshopIds: `COALESCE(array_agg(DISTINCT b.id) FILTER (WHERE b.type = 'workshop'), ARRAY[]::uuid[])`,
 };

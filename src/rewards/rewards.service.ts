@@ -83,19 +83,73 @@ export class RewardsService {
     private readonly dataSource: DataSource,
   ) {}
 
+  private async resolveMilestoneWorkshopIds(milestones: RewardMilestone[]) {
+    const needsCheck = milestones.some(
+      (m) =>
+        (m.requiresSpecialStamps && m.requiredWorkshopIds == null) ||
+        (m.requiredWorkshopIds != null && m.requiredWorkshopIds.length > 0),
+    );
+    if (!needsCheck) return milestones;
+
+    const activeWorkshops = await this.dataSource.manager.findBy(Booth, {
+      type: BoothType.WORKSHOP,
+    });
+    if (!activeWorkshops.length) return milestones;
+
+    const activeIdSet = new Set(activeWorkshops.map((w) => w.id));
+    const legacyQrSet = new Set<string>([
+      ...SPECIAL_STAMPS.map((s) => s.qrCode),
+      'WORKSHOP-01',
+      'WORKSHOP-02',
+    ]);
+    const legacyWorkshops = activeWorkshops.filter(
+      (w) => w.qrCode && legacyQrSet.has(w.qrCode),
+    );
+
+    for (const m of milestones) {
+      if (m.requiresSpecialStamps && m.requiredWorkshopIds == null) {
+        if (legacyWorkshops.length === 2) {
+          m.requiredWorkshopIds = legacyWorkshops.map((b) => b.id);
+        } else if (activeWorkshops.length === 2) {
+          m.requiredWorkshopIds = activeWorkshops.map((b) => b.id);
+        }
+      } else if (
+        m.requiredWorkshopIds &&
+        m.requiredWorkshopIds.length > 0 &&
+        m.requiredWorkshopIds.some((id) => !activeIdSet.has(id))
+      ) {
+        const targetCount = m.requiredWorkshopIds.length;
+        const validExisting = m.requiredWorkshopIds.filter((id) =>
+          activeIdSet.has(id),
+        );
+        const candidatePool = (
+          legacyWorkshops.length >= targetCount
+            ? legacyWorkshops
+            : activeWorkshops
+        ).filter((w) => !validExisting.includes(w.id));
+        const repairedIds = [
+          ...validExisting,
+          ...candidatePool
+            .slice(0, Math.max(0, targetCount - validExisting.length))
+            .map((w) => w.id),
+        ];
+        if (repairedIds.length === targetCount) {
+          m.requiredWorkshopIds = repairedIds;
+          await this.milestoneRepo
+            .update(m.id, { requiredWorkshopIds: repairedIds })
+            .catch(() => undefined);
+        }
+      }
+    }
+    return milestones;
+  }
+
   async getMilestones(includeInactive = true) {
     const milestones = await this.milestoneRepo.find({
       where: includeInactive ? {} : { isActive: true },
       order: { sortOrder: 'ASC', requiredBooths: 'ASC', createdAt: 'ASC' },
     });
-    if (milestones.some(m => m.requiresSpecialStamps && m.requiredWorkshopIds == null)) {
-      const legacy = await this.dataSource.manager.findBy(Booth, { qrCode: In(SPECIAL_STAMPS.map(s => s.qrCode)), type: BoothType.WORKSHOP });
-      // Keep legacy requirements locked if either seeded workshop is missing.
-      if (legacy.length === 2) for (const m of milestones) {
-        if (m.requiresSpecialStamps && m.requiredWorkshopIds == null) m.requiredWorkshopIds = legacy.map(b => b.id);
-      }
-    }
-    return milestones;
+    return this.resolveMilestoneWorkshopIds(milestones);
   }
 
   private validateRequirement(requiredBooths: number, requiresSpecialStamps?: boolean, requiredWorkshopIds?: string[] | null) {
@@ -124,6 +178,7 @@ export class RewardsService {
 
   private async assertSpecialRequirement(milestone: RewardMilestone, studentId: string, manager?: EntityManager) {
     if (!requiredWorkshopCount(milestone)) return;
+    await this.resolveMilestoneWorkshopIds([milestone]);
     const counts = await this.getRewardCounts(studentId, manager);
     if (!rewardRequirement(milestone, counts).eligible) {
       throw new BadRequestException('Chưa đủ booth thường và các workshop bắt buộc của mốc quà');
@@ -308,6 +363,7 @@ export class RewardsService {
       where: { id: dto.milestoneId, isActive: true },
     });
     if (!milestone) throw new NotFoundException('Mốc quà không tồn tại');
+    await this.resolveMilestoneWorkshopIds([milestone]);
 
     return this.dataSource.transaction(async (manager) => {
       const counts = await this.getRewardCounts(student.id, manager);
@@ -685,6 +741,7 @@ export class RewardsService {
       where: { id: milestoneId },
     });
     if (!milestone) throw new NotFoundException('Mốc quà không tồn tại');
+    await this.resolveMilestoneWorkshopIds([milestone]);
 
     const statusFilter = query.status ?? 'all';
     const page = query.page ?? 1;

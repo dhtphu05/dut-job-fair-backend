@@ -109,19 +109,27 @@ export class SchoolAdminService {
       'c',
     ).getRawOne<{ count: string }>();
 
-    const recentScansQuery = this.checkinRepo
-      .createQueryBuilder('c')
-      .innerJoinAndSelect('c.student', 'student')
-      .leftJoinAndSelect('c.booth', 'booth')
-      .leftJoinAndSelect('booth.business', 'business')
-      .orderBy('c.checkInTime', 'DESC')
-      .take(10);
-    const recentScans = await this.applyGraduationBatchFilter(
-      recentScansQuery,
-      'student',
-      graduationBatch,
-      'c',
-    ).getMany();
+    const recentScansByType = await Promise.all(
+      [BoothType.BOOTH, BoothType.WORKSHOP, BoothType.TOTNGHIEP].map((unitType) => {
+        const qb = this.checkinRepo
+          .createQueryBuilder('c')
+          .innerJoinAndSelect('c.student', 'student')
+          .leftJoinAndSelect('c.booth', 'booth')
+          .leftJoinAndSelect('booth.business', 'business')
+          .where('booth.type = :unitType', { unitType })
+          .orderBy('c.checkInTime', 'DESC')
+          .take(10);
+        return this.applyGraduationBatchFilter(
+          qb,
+          'student',
+          graduationBatch,
+          'c',
+        ).getMany();
+      }),
+    );
+    const recentScans = recentScansByType
+      .flat()
+      .sort((a, b) => new Date(b.checkInTime).getTime() - new Date(a.checkInTime).getTime());
 
     const groupedByTypeQuery = this.checkinRepo
       .createQueryBuilder('c')
@@ -348,8 +356,13 @@ export class SchoolAdminService {
     };
   }
 
-  // GET /school-admin/checkins?page=1&pageSize=30
-  async getCheckins(page = 1, pageSize = 30, graduationBatch?: string) {
+  // GET /school-admin/checkins?page=1&pageSize=30&type=workshop
+  async getCheckins(
+    page = 1,
+    pageSize = 30,
+    graduationBatch?: string,
+    type?: string,
+  ) {
     const checkinsQuery = this.checkinRepo
       .createQueryBuilder('c')
       .innerJoinAndSelect('c.student', 'student')
@@ -358,6 +371,17 @@ export class SchoolAdminService {
       .orderBy('c.checkInTime', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize);
+
+    const normalizedType = type?.trim().toLowerCase();
+    if (
+      normalizedType === BoothType.BOOTH ||
+      normalizedType === BoothType.WORKSHOP ||
+      normalizedType === BoothType.TOTNGHIEP
+    ) {
+      checkinsQuery.andWhere('booth.type = :boothType', {
+        boothType: normalizedType,
+      });
+    }
     const [checkins, total] = await this.applyGraduationBatchFilter(
       checkinsQuery,
       'student',

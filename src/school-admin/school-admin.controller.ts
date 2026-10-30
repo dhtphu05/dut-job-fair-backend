@@ -57,13 +57,15 @@ export class SchoolAdminController {
     @ApiOperation({ summary: 'Danh sách lượt check-in toàn sự kiện (phân trang)' })
     @ApiQuery({ name: 'page', required: false }) @ApiQuery({ name: 'pageSize', required: false })
     @ApiQuery({ name: 'dotTotNghiep', required: false, example: 'TN2026_dot_2' })
+    @ApiQuery({ name: 'type', required: false, example: 'workshop' })
     @Get('checkins')
     getCheckins(
         @Query('page') p?: string,
         @Query('pageSize') ps?: string,
         @Query('dotTotNghiep') dotTotNghiep?: string,
+        @Query('type') type?: string,
     ) {
-        return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30, dotTotNghiep);
+        return this.schoolAdminService.getCheckins(p ? +p : 1, ps ? +ps : 30, dotTotNghiep, type);
     }
 
     @ApiOperation({ summary: 'Xuất danh sách sinh viên tham gia gian hàng doanh nghiệp' })

@@ -82,7 +82,7 @@ export class CheckinService {
             order: { checkInTime: 'DESC' },
         });
 
-        // Deduplicate by businessId, keep earliest checkInTime per business
+        // Deduplicate by businessId/boothId, keep latest checkInTime per unit
         const checkedInBoothIds = new Set<string>();
         const businessMap = new Map<string, {
             businessId: string;
@@ -93,23 +93,30 @@ export class CheckinService {
             website: string | null;
             boothId: string;
             boothName: string;
+            type: string;
+            checkInTime: Date;
             lastCheckInTime: Date;
         }>();
 
         for (const checkin of checkins) {
-            const biz = checkin.booth?.business;
-            if (!biz) continue;
+            if (!checkin.booth) continue;
             checkedInBoothIds.add(checkin.boothId);
-            if (!businessMap.has(biz.id)) {
-                businessMap.set(biz.id, {
-                    businessId: biz.id,
-                    businessName: biz.name,
-                    publicId: biz.publicId ?? null,
-                    logoUrl: biz.logoUrl ?? null,
-                    industry: biz.industry ?? null,
-                    website: biz.website ?? null,
+            const biz = checkin.booth.business;
+            const unitKey = biz?.id ?? checkin.booth.id;
+            if (!businessMap.has(unitKey)) {
+                businessMap.set(unitKey, {
+                    businessId: biz?.id ?? checkin.booth.id,
+                    businessName: biz?.name ?? checkin.booth.name,
+                    publicId: biz?.publicId ?? null,
+                    logoUrl: biz?.logoUrl ?? null,
+                    industry:
+                        biz?.industry ??
+                        (checkin.booth.type === 'workshop' ? 'Hội thảo / Workshop' : null),
+                    website: biz?.website ?? null,
                     boothId: checkin.booth.id,
                     boothName: checkin.booth.name,
+                    type: checkin.booth.type ?? 'booth',
+                    checkInTime: checkin.checkInTime,
                     lastCheckInTime: checkin.checkInTime,
                 });
             }
