@@ -114,12 +114,12 @@ export const SEED_CHECKIN_STUDENTS: SeedCheckinStudent[] = [
     },
   },
   {
-    studentCode: '109240005',
-    fullName: 'Mỹ Anh',
-    className: '24BIM_AI',
+    studentCode: '109230027',
+    fullName: 'Vân Anh',
+    className: '23BIM_AI',
     department: 'Khoa Xây dựng',
-    email: 'anh90390@gmail.com',
-    phone: '0912794428',
+    email: '109230027@sv1.dut.udn.vn',
+    phone: '0931799689',
     workshopCheckinTimes: {
       careerTalk: '2026-10-30T13:11:33+07:00',
       openingCeremony: '2026-10-31T07:30:01+07:00',
